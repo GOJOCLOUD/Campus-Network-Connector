@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 用户在本机识别的输入源 ID（英文/拼音），不提交
+backend/input_source_config.json
