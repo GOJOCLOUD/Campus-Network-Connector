@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+html, body, #root {
+  background: transparent;
+}
+
+.drag-handle {
+  position: fixed;
+  top: 6px;
+  left: 72px;
+  right: 8px;
+  height: 22px;
+  -webkit-app-region: drag;
+  z-index: 9999;
+}
+
 @keyframes fade-in-out {
   0% {
     opacity: 0;

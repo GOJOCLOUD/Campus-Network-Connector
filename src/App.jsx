@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import Stepper, { Step } from './components/Stepper'
 
 // 开发时走 Vite 代理，否则直连后端
-const API_BASE = import.meta.env.DEV ? '' : 'http://127.0.0.1:5000'
+const API_BASE = import.meta.env.DEV ? '' : 'http://127.0.0.1:51888'
 
 function App() {
   const [name, setName] = useState('')
@@ -30,6 +30,23 @@ function App() {
   const [currentInputSourceInfo, setCurrentInputSourceInfo] = useState(null)
   const [inputSourceConfig, setInputSourceConfig] = useState({ ascii_id: '', pinyin_id: '', switch_shortcut: 'cmd+space' })
   const [switchShortcutInput, setSwitchShortcutInput] = useState('cmd+space')
+  const [backendReady, setBackendReady] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const r = await fetch(`${API_BASE}/api/health`)
+          const d = await r.json()
+          if (d.status === 'success') { setBackendReady(true); return }
+        } catch (_) {}
+        await new Promise(r => setTimeout(r, 800))
+      }
+    }
+    poll()
+    return () => { cancelled = true }
+  }, [])
 
   // 录制中每 0.1s 拉取一次坐标，不缓存
   useEffect(() => {
@@ -391,8 +408,20 @@ function App() {
     }
   }
 
+  if (!backendReady) {
+    return (
+      <div className="min-h-screen bg-transparent flex items-center justify-center">
+        <div className="drag-handle" aria-hidden="true" />
+        <div className="bg-white rounded-2xl shadow-lg px-8 py-6 text-center">
+          <p className="text-gray-600 text-sm">正在启动后端服务…</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center">
+    <div className="min-h-screen bg-transparent flex items-center justify-center">
+      <div className="drag-handle" aria-hidden="true" />
       <Stepper
         initialStep={1}
         onStepChange={(step) => {

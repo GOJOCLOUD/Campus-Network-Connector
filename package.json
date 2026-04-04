@@ -9,10 +9,11 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "backend": "cd backend && uvicorn main:app --reload --port 5000",
+    "backend": "cd backend && uvicorn main:app --reload --port 51888",
     "electron": "electron .",
     "electron:build": "npm run build && electron .",
-    "dist:mac": "npm run build && npx electron-builder --mac dir --publish never"
+    "bundle:python": "bash scripts/bundle-python-runtime.sh",
+    "dist:mac": "npm run bundle:python && npm run build && npx electron-builder --mac dir --publish never"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -48,6 +49,18 @@
     "appId": "com.gojocloud.campus-network-connector",
     "productName": "Campus Network Connector",
     "asar": true,
+    "asarUnpack": [
+      "backend/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "python-runtime",
+        "to": "python-runtime",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "directories": {
       "output": "release"
     },

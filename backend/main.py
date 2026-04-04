@@ -240,14 +240,21 @@ def pinyin_input(request: PinyinInputRequest):
 
     def run():
         import time
+        import sys
         try:
+            print(f"[pinyin] thread started, delay={delay}, segments={segments}", flush=True)
             if delay > 0:
                 time.sleep(delay)
             if segments:
+                print(f"[pinyin] calling run_pinyin_typing, auto_switch_ime={auto_switch_ime}", flush=True)
                 run_pinyin_typing(segments, auto_switch_ime=auto_switch_ime)
+                print("[pinyin] run_pinyin_typing finished", flush=True)
+            else:
+                print("[pinyin] no segments to type", flush=True)
         except Exception:
             import traceback
             traceback.print_exc()
+            print("[pinyin] exception occurred", flush=True)
 
     threading.Thread(target=run, daemon=True).start()
     return {
@@ -497,4 +504,4 @@ def delete_file(request: DeleteRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    uvicorn.run(app, host="0.0.0.0", port=51888)

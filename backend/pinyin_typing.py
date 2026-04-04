@@ -102,36 +102,40 @@ def run_pinyin_typing(
     - 上一段是拼音 → 下一段前按 1 确认。
     - 上一段是英文(literal) → 下一段前：若下一段是单个空格(space_1) 按 1 次 Enter；若是 2+ 空格/换行(space_n) 按 2 次 Enter（换行）；否则按 1 次 Enter。
     """
+    print(f"[typing] start, {len(segments)} segments, auto_switch={auto_switch_ime}", flush=True)
     kb = KeyboardController()
     prev_type: str | None = None
     for idx, (seg, seg_type) in enumerate(segments):
-        # 段边界：上一段是拼音或英文时，先按 1 或 Enter。英文模式下不触发剪切板，单空格直接输入即可
+        print(f"[typing] seg[{idx}] type={seg_type} text={seg!r}", flush=True)
         if prev_type is not None:
             if prev_type == "pinyin":
+                print("[typing] pressing '1' to confirm pinyin", flush=True)
                 kb.press(KeyCode.from_char("1"))
                 kb.release(KeyCode.from_char("1"))
                 time.sleep(CONFIRM_DELAY)
             elif prev_type == "literal":
-                # 下一段是单个空格(space_1) → 不按 Enter，直接输入空格；2+ 空格(space_n) → 按 Enter 换行
                 next_is_space_n = idx < len(segments) and segments[idx][1] == "space_n"
                 if next_is_space_n:
                     kb.press(Key.enter)
                     kb.release(Key.enter)
                     time.sleep(CONFIRM_DELAY)
-        # 输入当前段前：若需要拼音/英文，先确保输入法对（空格不切输入法）
         if auto_switch_ime and seg_type in ("pinyin", "literal"):
-            _ensure_ime_for_segment(seg_type, kb)
+            print(f"[typing] ensuring IME for {seg_type}...", flush=True)
+            ok = _ensure_ime_for_segment(seg_type, kb)
+            print(f"[typing] IME switch result: {ok}", flush=True)
             time.sleep(0.05)
-        for c in seg:
+        for ci, c in enumerate(seg):
             try:
                 kb.type(c)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[typing] ERROR typing char {c!r}: {e}", flush=True)
             time.sleep(char_delay)
+        print(f"[typing] seg[{idx}] done", flush=True)
         if seg_type == "pinyin" or seg_type == "literal":
             prev_type = seg_type
         else:
             prev_type = None
+    print("[typing] all segments done", flush=True)
 
 
 def convert_and_type(
