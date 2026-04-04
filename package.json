@@ -76,7 +76,6 @@
       "target": [
         "dir"
       ],
-      "sign": false,
       "artifactName": "${productName}-mac-${version}.${ext}"
     }
   }
