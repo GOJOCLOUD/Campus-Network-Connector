@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "backend": "cd backend && uvicorn main:app --reload --port 5000",
     "electron": "electron .",
-    "electron:build": "npm run build && electron ."
+    "electron:build": "npm run build && electron .",
+    "dist:mac": "npm run build && npx electron-builder --mac --publish never",
+    "dist:win": "npm run build && npx electron-builder --win --publish never"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -42,5 +44,32 @@
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.1",
     "vite": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.gojocloud.campus-network-connector",
+    "productName": "Campus Network Connector",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "main.js",
+      "preload.js",
+      "backend/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "artifactName": "${productName}-mac-${version}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-win-${version}.${ext}"
+    }
   }
 }
