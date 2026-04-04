@@ -2,7 +2,8 @@
 # 1) 下载独立 Python（python-build-standalone）并 pip 安装 backend 依赖 → python-runtime/
 # 2) Vite build + electron-builder --mac dir → 仅产出 .app
 #
-# 产物：Actions → 本次运行 → Artifacts → 下载 mac-app（内含 Campus Network Connector.app）
+# 产物：Actions → Artifacts → 下载 Campus-Network-Connector-mac.zip
+# 解压 zip 后得到「Campus Network Connector.app」（不要只看见 Contents 就当成最终包）
 name: Build macOS App
 
 on:
@@ -48,10 +49,19 @@ jobs:
           echo "path=$APP" >> "$GITHUB_OUTPUT"
           echo "Built: $APP"
 
-      - name: Upload mac app artifact
+      - name: Zip .app（解压后即为完整 .app）
+        id: zipout
+        run: |
+          APP="${{ steps.apppath.outputs.path }}"
+          ZIP="$GITHUB_WORKSPACE/Campus-Network-Connector-mac.zip"
+          /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
+          ls -la "$ZIP"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Upload macOS app zip
         uses: actions/upload-artifact@v4
         with:
-          name: mac-app
-          path: ${{ steps.apppath.outputs.path }}
+          name: Campus-Network-Connector-mac
+          path: ${{ steps.zipout.outputs.zip }}
           if-no-files-found: error
           retention-days: 14

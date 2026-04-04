@@ -48,6 +48,7 @@
   "build": {
     "appId": "com.gojocloud.campus-network-connector",
     "productName": "Campus Network Connector",
+    "icon": "build/app-icon.png",
     "asar": true,
     "asarUnpack": [
       "backend/**/*"
