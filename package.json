@@ -12,8 +12,7 @@
     "backend": "cd backend && uvicorn main:app --reload --port 5000",
     "electron": "electron .",
     "electron:build": "npm run build && electron .",
-    "dist:mac": "npm run build && npx electron-builder --mac --publish never",
-    "dist:win": "npm run build && npx electron-builder --win --publish never"
+    "dist:mac": "npm run build && npx electron-builder --mac dir --publish never"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -61,15 +60,9 @@
     ],
     "mac": {
       "target": [
-        "dmg"
+        "dir"
       ],
       "artifactName": "${productName}-mac-${version}.${ext}"
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "artifactName": "${productName}-win-${version}.${ext}"
     }
   }
 }

@@ -1,4 +1,4 @@
-name: Build Desktop Apps
+name: Build macOS App
 
 on:
   push:
@@ -22,37 +22,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build mac package
+      - name: Build mac app bundle
         run: npm run dist:mac
 
       - name: Upload mac artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mac-release
-          path: release/*
-          if-no-files-found: error
-
-  build-win:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build windows package
-        run: npm run dist:win
-
-      - name: Upload windows artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: win-release
-          path: release/*
+          name: mac-app
+          path: release/mac*/**/*.app
           if-no-files-found: error
