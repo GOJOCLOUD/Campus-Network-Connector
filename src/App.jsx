@@ -183,6 +183,13 @@ function App() {
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [showJsonDropdown])
 
+  // 把「选择录制」同步给主进程，供全局快捷键使用
+  useEffect(() => {
+    try {
+      window?.cnc?.settings?.setSelectedJson?.(selectedJson || '')
+    } catch (_) {}
+  }, [selectedJson])
+
   const handleStart = () => {
     setMessage('')
     setCountdown(3)

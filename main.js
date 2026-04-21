@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, clipboard } = require('electron');
 const path = require('path');
 const { spawn, execSync } = require('child_process');
 const http = require('http');
@@ -6,6 +6,61 @@ const fs = require('fs');
 
 const BACKEND_PORT = 51888;
 let backendProcess = null;
+let selectedJsonSetting = '';
+const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
+
+function loadSettings() {
+  try {
+    const fp = SETTINGS_FILE();
+    if (!fs.existsSync(fp)) return;
+    const raw = fs.readFileSync(fp, 'utf-8');
+    const data = JSON.parse(raw || '{}');
+    selectedJsonSetting = String(data.selectedJson || '');
+  } catch (_) {}
+}
+
+function saveSettings() {
+  try {
+    const fp = SETTINGS_FILE();
+    fs.mkdirSync(path.dirname(fp), { recursive: true });
+    fs.writeFileSync(fp, JSON.stringify({ selectedJson: selectedJsonSetting }, null, 2), 'utf-8');
+  } catch (_) {}
+}
+
+function httpJson(method, url, bodyObj) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const body = bodyObj ? JSON.stringify(bodyObj) : null;
+    const req = http.request(
+      {
+        method,
+        hostname: u.hostname,
+        port: u.port,
+        path: u.pathname + (u.search || ''),
+        headers: body
+          ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+          : undefined,
+      },
+      (res) => {
+        let buf = '';
+        res.on('data', (c) => (buf += c));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(buf || '{}'));
+          } catch (e) {
+            resolve({ status: 'error', message: 'invalid json', raw: buf });
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.setTimeout(8000, () => {
+      req.destroy(new Error('timeout'));
+    });
+    if (body) req.write(body);
+    req.end();
+  });
+}
 
 function resolveBackendDir() {
   const candidates = [
@@ -138,7 +193,57 @@ function createWindow() {
   return mainWindow;
 }
 
+async function triggerDefaultExecute() {
+  const ok = await ensureBackendStarted();
+  if (!ok) return;
+
+  let fileName = (selectedJsonSetting || '').trim();
+  if (!fileName) {
+    const data = await httpJson('GET', `http://127.0.0.1:${BACKEND_PORT}/api/files`);
+    const files = Array.isArray(data.files) ? data.files : [];
+    if (!files.length) return;
+    fileName = [...files].sort((a, b) => (a.name < b.name ? 1 : -1))[0].name;
+  }
+
+  await httpJson('POST', `http://127.0.0.1:${BACKEND_PORT}/api/play`, {
+    json_file: fileName,
+    interval: 0.5,
+    input_text: '',
+  });
+}
+
+async function triggerPinyinFromClipboard() {
+  const ok = await ensureBackendStarted();
+  if (!ok) return;
+  const t = (clipboard.readText() || '').trim();
+  if (!t) return;
+  await httpJson('POST', `http://127.0.0.1:${BACKEND_PORT}/api/pinyin_input`, {
+    text: t,
+    initial_delay_seconds: 3,
+    auto_switch_ime: true,
+  });
+}
+
+function registerShortcuts() {
+  // 可按需改成可配置；先给一个不太容易冲突的默认值
+  const ok1 = globalShortcut.register('CommandOrControl+Alt+D', () => {
+    triggerDefaultExecute().catch((e) => console.error('[shortcut] default execute failed', e));
+  });
+  const ok2 = globalShortcut.register('CommandOrControl+Alt+P', () => {
+    triggerPinyinFromClipboard().catch((e) => console.error('[shortcut] pinyin failed', e));
+  });
+  console.log(`[shortcut] register defaultExecute=${ok1} pinyin=${ok2}`);
+}
+
 app.on('ready', () => {
+  loadSettings();
+
+  ipcMain.on('settings:setSelectedJson', (_e, fileName) => {
+    selectedJsonSetting = String(fileName || '');
+    saveSettings();
+  });
+  ipcMain.handle('settings:getSelectedJson', async () => selectedJsonSetting);
+
   createWindow();
   ensureBackendStarted().then((ok) => {
     if (!ok) {
@@ -146,7 +251,9 @@ app.on('ready', () => {
         '后端启动失败',
         '无法启动内嵌 Python 后端。请完全退出应用后重试；若仍失败请重新下载安装包。'
       );
+      return;
     }
+    registerShortcuts();
   });
 });
 
@@ -159,6 +266,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  try {
+    globalShortcut.unregisterAll();
+  } catch (_) {}
   if (backendProcess && !backendProcess.killed) {
     backendProcess.kill();
   }
