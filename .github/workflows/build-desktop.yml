@@ -1,22 +1,15 @@
-# 云打包：推送/手动触发后在 GitHub Runner 上完成
-# 1) 下载独立 Python（python-build-standalone）并 pip 安装 backend 依赖 → python-runtime/
-# 2) Vite build + electron-builder --mac dir → 仅产出 .app
-#
-# 产物：Actions → Artifacts → 下载 Campus-Network-Connector-mac.zip
-# 解压 zip 后得到「Campus Network Connector.app」（不要只看见 Contents 就当成最终包）
-name: Build macOS App
+name: Build macOS DMG
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
-  build-mac:
+  build-mac-dmg:
     runs-on: macos-latest
     permissions:
-      # 需要创建 Release 并上传附件（不走 Actions Artifacts）
       contents: write
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -33,42 +26,35 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build .app（bundle Python + electron-builder）
+      - name: Build DMG（bundle Python + electron-builder）
         run: |
           chmod +x scripts/bundle-python-runtime.sh
-          npm run dist:mac
+          npm run bundle:python
+          npm run build
+          npx electron-builder --mac dmg --publish never
 
-      - name: Resolve .app path
-        id: apppath
+      - name: Resolve DMG path
+        id: dmg
         run: |
-          APP="$(find release -maxdepth 4 -name '*.app' -type d | head -1)"
-          if [[ -z "$APP" ]]; then
-            echo "No .app under release/"
-            find release -type d -maxdepth 5 || true
+          DMG="$(find release -maxdepth 4 -name '*.dmg' -type f | head -1)"
+          if [[ -z "$DMG" ]]; then
+            echo "No .dmg under release/"
+            find release -type f -maxdepth 5 || true
             exit 1
           fi
-          echo "path=$APP" >> "$GITHUB_OUTPUT"
-          echo "Built: $APP"
+          echo "path=$DMG" >> "$GITHUB_OUTPUT"
+          echo "Built: $DMG"
 
-      - name: Zip .app（解压后即为完整 .app）
-        id: zipout
-        run: |
-          APP="${{ steps.apppath.outputs.path }}"
-          ZIP="$GITHUB_WORKSPACE/Campus-Network-Connector-mac.zip"
-          /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
-          ls -la "$ZIP"
-          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
-
-      - name: Publish GitHub Release（zip 附件，不占用 Actions Artifacts）
+      - name: Publish GitHub Release（DMG 附件，不走 Actions Artifacts）
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ZIP="${{ steps.zipout.outputs.zip }}"
-          TAG="ci-${{ github.run_id }}"
-          TITLE="CI build ${{ github.run_id }} (${{ github.ref_name }})"
-          NOTES="自动构建产物（zip）。分支：\`${{ github.ref_name }}\`；提交：\`${{ github.sha }}\`。"
-          gh release create "$TAG" "$ZIP" \
+          DMG="${{ steps.dmg.outputs.path }}"
+          TAG="dmg-${{ github.run_id }}"
+          TITLE="DMG build ${{ github.run_id }} (${{ github.ref_name }})"
+          NOTES="自动构建产物（dmg）。分支：\`${{ github.ref_name }}\`；提交：\`${{ github.sha }}\`。"
+          gh release create "$TAG" "$DMG" \
             --title "$TITLE" \
             --notes "$NOTES" \
             --prerelease
