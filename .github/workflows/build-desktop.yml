@@ -1,0 +1,67 @@
+# 云打包：推送/手动触发后在 GitHub Runner 上完成
+# 1) 下载独立 Python（python-build-standalone）并 pip 安装 backend 依赖 → python-runtime/
+# 2) Vite build + electron-builder --mac dir → 仅产出 .app
+#
+# 产物：Actions → Artifacts → 下载 Campus-Network-Connector-mac.zip
+# 解压 zip 后得到「Campus Network Connector.app」（不要只看见 Contents 就当成最终包）
+name: Build macOS App
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build .app（bundle Python + electron-builder）
+        run: |
+          chmod +x scripts/bundle-python-runtime.sh
+          npm run dist:mac
+
+      - name: Resolve .app path
+        id: apppath
+        run: |
+          APP="$(find release -maxdepth 4 -name '*.app' -type d | head -1)"
+          if [[ -z "$APP" ]]; then
+            echo "No .app under release/"
+            find release -type d -maxdepth 5 || true
+            exit 1
+          fi
+          echo "path=$APP" >> "$GITHUB_OUTPUT"
+          echo "Built: $APP"
+
+      - name: Zip .app（解压后即为完整 .app）
+        id: zipout
+        run: |
+          APP="${{ steps.apppath.outputs.path }}"
+          ZIP="$GITHUB_WORKSPACE/Campus-Network-Connector-mac.zip"
+          /usr/bin/ditto -c -k --keepParent "$APP" "$ZIP"
+          ls -la "$ZIP"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Upload macOS app zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: Campus-Network-Connector-mac
+          path: ${{ steps.zipout.outputs.zip }}
+          if-no-files-found: error
+          retention-days: 14
