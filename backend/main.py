@@ -7,6 +7,7 @@ import threading
 from typing import Optional
 from datetime import datetime
 import os
+import sys
 
 from fastapi import Body, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -246,7 +247,7 @@ def pinyin_input(request: PinyinInputRequest):
             backend_dir = os.path.dirname(os.path.abspath(__file__))
             worker = os.path.join(backend_dir, "automation_worker.py")
             cmd = [
-                os.environ.get("PYTHON", "python3"),
+                os.environ.get("PYTHON") or sys.executable,
                 worker,
                 "pinyin-type",
                 "--text",
@@ -314,7 +315,7 @@ def play_recording(request: PlayRequest):
         try:
             worker = os.path.join(backend_dir, "automation_worker.py")
             cmd = [
-                os.environ.get("PYTHON", "python3"),
+                os.environ.get("PYTHON") or sys.executable,
                 worker,
                 "play-file",
                 "--file",
@@ -381,7 +382,7 @@ def play_inline(request: PlayInlineRequest):
         try:
             worker = os.path.join(backend_dir, "automation_worker.py")
             cmd = [
-                os.environ.get("PYTHON", "python3"),
+                os.environ.get("PYTHON") or sys.executable,
                 worker,
                 "play-data",
                 "--payload",

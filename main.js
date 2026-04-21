@@ -160,6 +160,8 @@ async function ensureBackendStarted() {
   const env = {
     ...process.env,
     PYTHONUNBUFFERED: '1',
+    // 后端会再 spawn automation_worker.py；不设置会退回用系统 python3，导致依赖缺失/行为不一致
+    PYTHON: pythonExe,
   };
   if (pythonHome) {
     env.PYTHONHOME = path.resolve(pythonHome);
