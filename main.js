@@ -249,14 +249,14 @@ async function triggerPinyinFromClipboard() {
 }
 
 function registerShortcuts() {
-  // 可按需改成可配置；先给一个不太容易冲突的默认值
-  const ok1 = globalShortcut.register('Alt+D', () => {
+  // 用户要求：A+D / A+S（Electron globalShortcut 语法为组合键，不是“先按A再按D”）
+  const ok1 = globalShortcut.register('A+D', () => {
     triggerDefaultExecute().catch((e) => console.error('[shortcut] default execute failed', e));
   });
-  const ok2 = globalShortcut.register('Alt+S', () => {
+  const ok2 = globalShortcut.register('A+S', () => {
     triggerPinyinFromClipboard().catch((e) => console.error('[shortcut] pinyin failed', e));
   });
-  console.log(`[shortcut] register defaultExecute=${ok1} pinyin=${ok2}`);
+  console.log(`[shortcut] register A+D=${ok1} A+S=${ok2}`);
 }
 
 app.on('ready', () => {
