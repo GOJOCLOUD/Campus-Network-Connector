@@ -16,7 +16,8 @@ jobs:
   build-mac:
     runs-on: macos-latest
     permissions:
-      contents: read
+      # 需要创建 Release 并上传附件（不走 Actions Artifacts）
+      contents: write
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
@@ -58,10 +59,16 @@ jobs:
           ls -la "$ZIP"
           echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
 
-      - name: Upload macOS app zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: Campus-Network-Connector-mac
-          path: ${{ steps.zipout.outputs.zip }}
-          if-no-files-found: error
-          retention-days: 14
+      - name: Publish GitHub Release（zip 附件，不占用 Actions Artifacts）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ZIP="${{ steps.zipout.outputs.zip }}"
+          TAG="ci-${{ github.run_id }}"
+          TITLE="CI build ${{ github.run_id }} (${{ github.ref_name }})"
+          NOTES="自动构建产物（zip）。分支：\`${{ github.ref_name }}\`；提交：\`${{ github.sha }}\`。"
+          gh release create "$TAG" "$ZIP" \
+            --title "$TITLE" \
+            --notes "$NOTES" \
+            --prerelease
