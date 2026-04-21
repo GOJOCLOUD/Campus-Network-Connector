@@ -245,7 +245,8 @@ async function triggerPinyinFromClipboard() {
   if (!t) return;
   await httpJson('POST', `http://127.0.0.1:${BACKEND_PORT}/api/pinyin_input`, {
     text: t,
-    initial_delay_seconds: 3,
+    // 快捷键触发：不需要等待，直接开始输入
+    initial_delay_seconds: 0,
     auto_switch_ime: !!autoSwitchImeSetting,
   });
 }
