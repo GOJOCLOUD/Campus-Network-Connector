@@ -31,7 +31,8 @@ function App() {
   const [inputSourceConfig, setInputSourceConfig] = useState({ ascii_id: '', pinyin_id: '', switch_shortcut: 'cmd+space' })
   const [switchShortcutInput, setSwitchShortcutInput] = useState('cmd+space')
   const [backendReady, setBackendReady] = useState(false)
-  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0 })
+  const [pinyinSourceForButton, setPinyinSourceForButton] = useState('textbox') // 'textbox' | 'clipboard'
+  const [pinyinSourceForShortcut, setPinyinSourceForShortcut] = useState('clipboard') // 'textbox' | 'clipboard'
 
   useEffect(() => {
     let cancelled = false
@@ -49,26 +50,6 @@ function App() {
     return () => { cancelled = true }
   }, [])
 
-  // 右键功能区：默认执行 / 拼音输入（剪贴板）
-  useEffect(() => {
-    const onContextMenu = (e) => {
-      e.preventDefault()
-      setContextMenu({ open: true, x: e.clientX, y: e.clientY })
-    }
-    const close = () => setContextMenu((s) => (s.open ? { ...s, open: false } : s))
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') close()
-    }
-    window.addEventListener('contextmenu', onContextMenu)
-    window.addEventListener('mousedown', close)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('contextmenu', onContextMenu)
-      window.removeEventListener('mousedown', close)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [])
-
   const readClipboardText = async () => {
     try {
       if (window?.cnc?.clipboardReadText) return (window.cnc.clipboardReadText() || '').trim()
@@ -81,10 +62,10 @@ function App() {
     }
   }
 
-  const handlePinyinFromClipboard = async () => {
-    const t = await readClipboardText()
+  const requestPinyinInput = (text) => {
+    const t = (text || '').trim()
     if (!t) {
-      setMessage('剪贴板为空或无权限读取')
+      setMessage('内容为空')
       setTimeout(() => setMessage(''), 2000)
       return
     }
@@ -189,6 +170,18 @@ function App() {
       window?.cnc?.settings?.setSelectedJson?.(selectedJson || '')
     } catch (_) {}
   }, [selectedJson])
+
+  // 把拼音输入的来源选项/文本同步给主进程，供全局快捷键使用
+  useEffect(() => {
+    try {
+      window?.cnc?.settings?.setPinyinText?.(name || '')
+      window?.cnc?.settings?.setPinyinSources?.({
+        button: pinyinSourceForButton,
+        shortcut: pinyinSourceForShortcut,
+      })
+      window?.cnc?.settings?.setAutoSwitchIme?.(autoSwitchIme)
+    } catch (_) {}
+  }, [name, pinyinSourceForButton, pinyinSourceForShortcut, autoSwitchIme])
 
   const handleStart = () => {
     setMessage('')
@@ -495,40 +488,6 @@ function App() {
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="drag-handle" aria-hidden="true" />
-      {contextMenu.open &&
-        createPortal(
-          <div
-            className="fixed z-[10000] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden text-sm"
-            style={{ left: contextMenu.x, top: contextMenu.y, minWidth: 180 }}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="w-full text-left px-3 py-2 hover:bg-gray-100"
-              onClick={() => {
-                setContextMenu((s) => ({ ...s, open: false }))
-                handleDefaultExecute()
-              }}
-            >
-              默认执行
-              <div className="text-xs text-gray-500 mt-0.5">
-                当前：{selectedJson ? selectedJson : '最新录制'}
-              </div>
-            </button>
-            <button
-              type="button"
-              className="w-full text-left px-3 py-2 hover:bg-gray-100 border-t border-gray-100"
-              onClick={() => {
-                setContextMenu((s) => ({ ...s, open: false }))
-                handlePinyinFromClipboard()
-              }}
-            >
-              拼音输入（剪贴板）
-              <div className="text-xs text-gray-500 mt-0.5">默认读取剪贴板内容</div>
-            </button>
-          </div>,
-          document.body
-        )}
       <Stepper
         initialStep={1}
         onStepChange={(step) => {
@@ -757,6 +716,30 @@ function App() {
         <Step>
           <h2>拼音输入</h2>
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">输入完成前不要试图操作电脑，否则可能导致电脑死机（强制重启可以解决）</p>
+          <div className="flex items-center gap-3 flex-wrap mb-3 text-sm text-gray-700">
+            <label className="flex items-center gap-2">
+              开始输入按钮：
+              <select
+                value={pinyinSourceForButton}
+                onChange={(e) => setPinyinSourceForButton(e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 bg-white"
+              >
+                <option value="textbox">输入框</option>
+                <option value="clipboard">剪贴板</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              快捷键：
+              <select
+                value={pinyinSourceForShortcut}
+                onChange={(e) => setPinyinSourceForShortcut(e.target.value)}
+                className="border border-gray-300 rounded px-2 py-1 bg-white"
+              >
+                <option value="textbox">输入框</option>
+                <option value="clipboard">剪贴板</option>
+              </select>
+            </label>
+          </div>
           <div className="relative w-full mb-3">
             <textarea
               value={name}
@@ -780,36 +763,18 @@ function App() {
           <button
             type="button"
             onClick={() => {
-              const t = (name || '').trim()
-              if (!t) {
-                setMessage('请先输入要转换的内容')
-                setTimeout(() => setMessage(''), 2000)
-                return
-              }
-              setPinyinCountdown(3)
-              setMessage('')
-              fetch(`${API_BASE}/api/pinyin_input`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  text: t,
-                  initial_delay_seconds: 3,
-                  auto_switch_ime: autoSwitchIme,
-                }),
-              })
-                .then((r) => r.json())
-                .then((data) => {
-                  if (data.status === 'success') {
-                    setMessage(data.message || '已发起输入')
-                  } else {
-                    setMessage(data.message || '请求失败')
-                    setPinyinCountdown(0)
+              if (pinyinSourceForButton === 'clipboard') {
+                readClipboardText().then((t) => {
+                  if (!t) {
+                    setMessage('剪贴板为空或无权限读取')
+                    setTimeout(() => setMessage(''), 2000)
+                    return
                   }
+                  requestPinyinInput(t)
                 })
-                .catch(() => {
-                  setMessage('无法连接后端')
-                  setPinyinCountdown(0)
-                })
+              } else {
+                requestPinyinInput(name || '')
+              }
             }}
             className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform"
           >

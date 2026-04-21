@@ -21,5 +21,20 @@ contextBridge.exposeInMainWorld('cnc', {
         return Promise.resolve('');
       }
     },
+    setPinyinText(text) {
+      try {
+        ipcRenderer.send('settings:setPinyinText', String(text || ''));
+      } catch (_) {}
+    },
+    setPinyinSources(sources) {
+      try {
+        ipcRenderer.send('settings:setPinyinSources', sources || {});
+      } catch (_) {}
+    },
+    setAutoSwitchIme(enabled) {
+      try {
+        ipcRenderer.send('settings:setAutoSwitchIme', !!enabled);
+      } catch (_) {}
+    },
   },
 });

@@ -7,6 +7,9 @@ const fs = require('fs');
 const BACKEND_PORT = 51888;
 let backendProcess = null;
 let selectedJsonSetting = '';
+let pinyinTextSetting = '';
+let pinyinSourcesSetting = { button: 'textbox', shortcut: 'clipboard' };
+let autoSwitchImeSetting = true;
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 
 function loadSettings() {
@@ -16,6 +19,13 @@ function loadSettings() {
     const raw = fs.readFileSync(fp, 'utf-8');
     const data = JSON.parse(raw || '{}');
     selectedJsonSetting = String(data.selectedJson || '');
+    pinyinTextSetting = String(data.pinyinText || '');
+    const src = data.pinyinSources || {};
+    pinyinSourcesSetting = {
+      button: src.button === 'clipboard' ? 'clipboard' : 'textbox',
+      shortcut: src.shortcut === 'textbox' ? 'textbox' : 'clipboard',
+    };
+    autoSwitchImeSetting = typeof data.autoSwitchIme === 'boolean' ? data.autoSwitchIme : true;
   } catch (_) {}
 }
 
@@ -23,7 +33,20 @@ function saveSettings() {
   try {
     const fp = SETTINGS_FILE();
     fs.mkdirSync(path.dirname(fp), { recursive: true });
-    fs.writeFileSync(fp, JSON.stringify({ selectedJson: selectedJsonSetting }, null, 2), 'utf-8');
+    fs.writeFileSync(
+      fp,
+      JSON.stringify(
+        {
+          selectedJson: selectedJsonSetting,
+          pinyinText: pinyinTextSetting,
+          pinyinSources: pinyinSourcesSetting,
+          autoSwitchIme: autoSwitchImeSetting,
+        },
+        null,
+        2
+      ),
+      'utf-8'
+    );
   } catch (_) {}
 }
 
@@ -215,21 +238,22 @@ async function triggerDefaultExecute() {
 async function triggerPinyinFromClipboard() {
   const ok = await ensureBackendStarted();
   if (!ok) return;
-  const t = (clipboard.readText() || '').trim();
+  const source = pinyinSourcesSetting?.shortcut === 'textbox' ? 'textbox' : 'clipboard';
+  const t = (source === 'textbox' ? pinyinTextSetting : clipboard.readText() || '').trim();
   if (!t) return;
   await httpJson('POST', `http://127.0.0.1:${BACKEND_PORT}/api/pinyin_input`, {
     text: t,
     initial_delay_seconds: 3,
-    auto_switch_ime: true,
+    auto_switch_ime: !!autoSwitchImeSetting,
   });
 }
 
 function registerShortcuts() {
   // 可按需改成可配置；先给一个不太容易冲突的默认值
-  const ok1 = globalShortcut.register('CommandOrControl+Alt+D', () => {
+  const ok1 = globalShortcut.register('Alt+D', () => {
     triggerDefaultExecute().catch((e) => console.error('[shortcut] default execute failed', e));
   });
-  const ok2 = globalShortcut.register('CommandOrControl+Alt+P', () => {
+  const ok2 = globalShortcut.register('Alt+S', () => {
     triggerPinyinFromClipboard().catch((e) => console.error('[shortcut] pinyin failed', e));
   });
   console.log(`[shortcut] register defaultExecute=${ok1} pinyin=${ok2}`);
@@ -243,6 +267,22 @@ app.on('ready', () => {
     saveSettings();
   });
   ipcMain.handle('settings:getSelectedJson', async () => selectedJsonSetting);
+  ipcMain.on('settings:setPinyinText', (_e, text) => {
+    pinyinTextSetting = String(text || '');
+    saveSettings();
+  });
+  ipcMain.on('settings:setPinyinSources', (_e, sources) => {
+    const s = sources || {};
+    pinyinSourcesSetting = {
+      button: s.button === 'clipboard' ? 'clipboard' : 'textbox',
+      shortcut: s.shortcut === 'textbox' ? 'textbox' : 'clipboard',
+    };
+    saveSettings();
+  });
+  ipcMain.on('settings:setAutoSwitchIme', (_e, enabled) => {
+    autoSwitchImeSetting = !!enabled;
+    saveSettings();
+  });
 
   createWindow();
   ensureBackendStarted().then((ok) => {
