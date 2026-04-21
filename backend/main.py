@@ -21,6 +21,9 @@ recording_thread: Optional[threading.Thread] = None
 play_worker_lock = threading.Lock()
 play_worker_is_running = False
 play_worker_last_end_time = 0.0
+pinyin_worker_lock = threading.Lock()
+pinyin_worker_is_running = False
+pinyin_worker_last_end_time = 0.0
 
 
 class PlayRequest(BaseModel):
@@ -234,6 +237,8 @@ def pinyin_input(request: PinyinInputRequest):
     转译前按中文/英文/标点打标签，中文转拼音输入、英文原样；中文后标点前按 1，英文后标点前按 Enter。
     后台先等待 initial_delay_seconds，便于用户将光标移到目标位置。
     """
+    import time
+    global pinyin_worker_is_running, pinyin_worker_last_end_time
     text = (request.text or "").strip()
     if not text:
         return {"status": "error", "message": "请输入要转换并输入的内容"}
@@ -242,7 +247,17 @@ def pinyin_input(request: PinyinInputRequest):
     segments = chinese_to_pinyin_segments(text)
     segments_count = len(segments)
 
+    now = time.time()
+    if pinyin_worker_is_running:
+        return {"status": "error", "message": "已有拼音输入正在执行，请稍后再试"}
+    if pinyin_worker_last_end_time and (now - pinyin_worker_last_end_time) < PINYIN_COOLDOWN:
+        return {"status": "error", "message": "拼音输入刚结束，请稍后再试"}
+
     def run():
+        global pinyin_worker_is_running, pinyin_worker_last_end_time
+        if not pinyin_worker_lock.acquire(blocking=False):
+            return
+        pinyin_worker_is_running = True
         try:
             backend_dir = os.path.dirname(os.path.abspath(__file__))
             worker = os.path.join(backend_dir, "automation_worker.py")
@@ -264,6 +279,13 @@ def pinyin_input(request: PinyinInputRequest):
             import traceback
             traceback.print_exc()
             print("[pinyin] exception occurred", flush=True)
+        finally:
+            pinyin_worker_is_running = False
+            pinyin_worker_last_end_time = time.time()
+            try:
+                pinyin_worker_lock.release()
+            except Exception:
+                pass
 
     threading.Thread(target=run, daemon=True).start()
     return {
@@ -275,6 +297,8 @@ def pinyin_input(request: PinyinInputRequest):
 
 # 回放结束后冷却时间（秒），防止模拟点击再次点到「默认执行」导致自动连发
 PLAY_COOLDOWN = 2.0
+# 拼音输入结束后冷却时间（秒），防止快捷键/模拟输入造成连发
+PINYIN_COOLDOWN = 1.5
 
 
 @app.post("/api/play")
