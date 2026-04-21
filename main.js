@@ -251,14 +251,17 @@ async function triggerPinyinFromClipboard() {
 }
 
 function registerShortcuts() {
-  // 用户要求：A+D / A+S（Electron globalShortcut 语法为组合键，不是“先按A再按D”）
-  const ok1 = globalShortcut.register('A+D', () => {
+  // 快捷键说明：
+  // - Electron globalShortcut 语法为“组合键”
+  // - macOS 的 Option 键在 Electron 里对应 Alt
+  // 选择 Option(Alt)+<键> 是为了避免自动输入时误触发纯字母组合。
+  const ok1 = globalShortcut.register('Alt+D', () => {
     triggerDefaultExecute().catch((e) => console.error('[shortcut] default execute failed', e));
   });
-  const ok2 = globalShortcut.register('A+S', () => {
+  const ok2 = globalShortcut.register('Alt+A', () => {
     triggerPinyinFromClipboard().catch((e) => console.error('[shortcut] pinyin failed', e));
   });
-  console.log(`[shortcut] register A+D=${ok1} A+S=${ok2}`);
+  console.log(`[shortcut] register Alt+D=${ok1} Alt+A=${ok2}`);
 }
 
 app.on('ready', () => {
