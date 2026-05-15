@@ -8,28 +8,20 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import time
 from typing import Any
 
+from keyboard_sender import send_text
 
-TYPE_CHAR_DELAY = 0.04
 
-
-def _type_as_keys(kb, text: str) -> None:
-    for char in text:
-        try:
-            kb.type(char)
-        except Exception:
-            pass
-        time.sleep(TYPE_CHAR_DELAY)
+def _type_as_keys(text: str) -> None:
+    send_text(text)
 
 
 def _play_clicks(clicks: list[dict[str, Any]], interval: float, inputs: Any | None) -> None:
-    from pynput import mouse, keyboard
+    from pynput import mouse
 
     mouse_controller = mouse.Controller()
-    keyboard_controller = keyboard.Controller()
 
     if not clicks:
         return
@@ -51,7 +43,7 @@ def _play_clicks(clicks: list[dict[str, Any]], interval: float, inputs: Any | No
             text = per_click_inputs[i]
             if text:
                 time.sleep(0.1)
-                _type_as_keys(keyboard_controller, text)
+                _type_as_keys(text)
         if i < len(clicks) - 1:
             time.sleep(interval)
 
@@ -88,15 +80,10 @@ def cmd_play_data(args: argparse.Namespace) -> int:
 
 
 def cmd_pinyin_type(args: argparse.Namespace) -> int:
-    from pinyin_converter import chinese_to_pinyin_segments
-    from pinyin_typing import run_pinyin_typing
-
     delay = max(0.0, float(args.initial_delay_seconds))
     if delay:
         time.sleep(delay)
-    segments = chinese_to_pinyin_segments(args.text or "")
-    if segments:
-        run_pinyin_typing(segments, auto_switch_ime=bool(args.auto_switch_ime))
+    send_text(args.text or "")
     return 0
 
 

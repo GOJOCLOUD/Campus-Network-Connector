@@ -6,6 +6,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700&display=swap" rel="stylesheet">
     <title>xyw</title>
+    <style>
+      /* 自制红绿灯 — 仅 Electron 无边框窗口下生效 */
+      .traffic-lights { display: none; position: fixed; top: 12px; left: 14px; gap: 8px; z-index: 99999; }
+      .traffic-lights button { width:12px; height:12px; border-radius:50%; border:none; padding:0; cursor:pointer; -webkit-app-region:no-drag; }
+      .traffic-lights .tl-c { background:#ff5f57; }
+      .traffic-lights .tl-m { background:#ffbd2e; }
+      .traffic-lights .tl-x { background:#28c840; }
+    </style>
+    <script>
+      if (window.cnc) document.write(
+        '<div class="traffic-lights" style="display:flex">' +
+        '<button class="tl-c" onclick="cnc.quit()"></button>' +
+        '<button class="tl-m" onclick="cnc.minimize()"></button>' +
+        '<button class="tl-x" onclick="cnc.maximize()"></button>' +
+        '</div>'
+      );
+    </script>
   </head>
   <body>
     <div id="root"></div>

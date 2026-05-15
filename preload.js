@@ -1,6 +1,15 @@
 const { contextBridge, clipboard, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('cnc', {
+  quit() {
+    try { ipcRenderer.invoke('window:quit'); } catch (_) {}
+  },
+  minimize() {
+    try { ipcRenderer.invoke('window:minimize'); } catch (_) {}
+  },
+  maximize() {
+    try { ipcRenderer.invoke('window:maximize'); } catch (_) {}
+  },
   clipboardReadText() {
     try {
       return clipboard.readText() || '';

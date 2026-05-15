@@ -1,13 +1,13 @@
 @import "tailwindcss";
 
 html, body, #root {
-  background: #ffffff;
+  background: transparent;
 }
 
 .drag-handle {
   position: fixed;
   top: 6px;
-  left: 72px;
+  left: 80px;
   right: 8px;
   height: 22px;
   -webkit-app-region: drag;

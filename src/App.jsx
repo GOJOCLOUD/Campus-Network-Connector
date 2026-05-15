@@ -1,11 +1,17 @@
-import { useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Stepper, { Step } from './components/Stepper'
+import nacl from 'tweetnacl'
 
 // 开发时走 Vite 代理，否则直连后端
 const API_BASE = import.meta.env.DEV ? '' : 'http://127.0.0.1:51888'
 
 function App() {
+  const ACTIVATION_PUBLIC_KEY_B64 = 'j5FyVLxHq1KZLNMrWYey+pfbq/wRSghcy7URZLmiYBU='
+  const ACTIVATION_PRODUCT_ID = 'campus-network-connector'
+  const ACTIVATION_LICENSE_PREFIX = 'cs1'
+  const TRIAL_SECONDS = 30
+
   const [name, setName] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const [clicks, setClicks] = useState([])
@@ -25,29 +31,267 @@ function App() {
   const [selectedFile, setSelectedFile] = useState('')
   const [newFileName, setNewFileName] = useState('')
   const [pinyinCountdown, setPinyinCountdown] = useState(0)
-  const [autoSwitchIme, setAutoSwitchIme] = useState(true)
-  const [isImeHelpOpen, setIsImeHelpOpen] = useState(false)
-  const [currentInputSourceInfo, setCurrentInputSourceInfo] = useState(null)
-  const [inputSourceConfig, setInputSourceConfig] = useState({ ascii_id: '', pinyin_id: '', switch_shortcut: 'cmd+space' })
-  const [switchShortcutInput, setSwitchShortcutInput] = useState('cmd+space')
-  const [backendReady, setBackendReady] = useState(false)
-  const [pinyinSourceForButton, setPinyinSourceForButton] = useState('textbox') // 'textbox' | 'clipboard'
-  const [pinyinSourceForShortcut, setPinyinSourceForShortcut] = useState('clipboard') // 'textbox' | 'clipboard'
 
-  useEffect(() => {
-    let cancelled = false
-    const poll = async () => {
-      while (!cancelled) {
-        try {
-          const r = await fetch(`${API_BASE}/api/health`)
-          const d = await r.json()
-          if (d.status === 'success') { setBackendReady(true); return }
-        } catch (_) {}
-        await new Promise(r => setTimeout(r, 800))
+  const [deviceUuid, setDeviceUuid] = useState('')
+  const [activationCode, setActivationCode] = useState('')
+  const [activationStatus, setActivationStatus] = useState('unactivated') // 'unactivated' | 'trial' | 'licensed'
+  const [trialRemainingMs, setTrialRemainingMs] = useState(0)
+  const [trialUsed, setTrialUsed] = useState(false)
+  const [isUserAgreementOpen, setIsUserAgreementOpen] = useState(false)
+  const [userAgreementMode, setUserAgreementMode] = useState('view') // 'accept_to_start_trial' | 'view'
+  const [activationUiMessage, setActivationUiMessage] = useState('')
+  const refreshLockRef = useRef(false)
+
+  const activationPublicKeyBytes = useMemo(() => {
+    const b64 = (ACTIVATION_PUBLIC_KEY_B64 || '').trim()
+    const bin = atob(b64)
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
+    return out
+  }, [])
+
+  const isActivated = activationStatus === 'trial' || activationStatus === 'licensed'
+
+  const USER_AGREEMENT_MD = useMemo(() => {
+    // 先用“偏保护作者”的条款占位，后续你给 md 我再替换成正式版
+    return `# 用户协议与免责条款（试用/激活前必读）
+
+## 1. 重要提示
+本软件用于在你的设备上执行自动化操作（包括但不限于模拟输入、模拟点击、读取/写入剪贴板、触发系统快捷键、访问辅助功能权限等）。这些能力可能导致**误操作、数据丢失、账号风险、系统不稳定**等后果。请在你完全理解并愿意自行承担风险的前提下使用。
+
+## 1.1 试用说明
+- 试用时长：${TRIAL_SECONDS}s。
+- 你点击“我同意”后即开始试用；试用期内软件处于可用状态。
+- 试用期结束后将恢复未激活状态，且该设备不再提供二次试用。
+
+## 2. 许可范围
+你获得的是在约定范围内使用本软件的许可，不获得源代码、商标或任何其他知识产权。你不得对软件进行反编译、逆向、破解、修改或用于非法用途。
+
+## 3. 你的责任
+- 你应确保你对被自动化操作的系统、账号、数据拥有合法授权。
+- 你应在使用前自行备份重要数据，并在可控环境中测试脚本/录制流程。
+- 你应自行判断输入内容、点击坐标、执行频率等参数是否安全合理。
+
+## 4. 免责声明（关键）
+在适用法律允许的最大范围内，软件按“现状”提供，不提供任何明示或暗示的担保，包括但不限于适销性、特定用途适用性、不侵权、持续可用性、无错误/无中断等。
+
+无论基于合同、侵权（包括过失）或其他任何法律理论，因使用或无法使用本软件导致的任何损失（包括但不限于利润损失、数据丢失、业务中断、系统故障、账号封禁、第三方索赔等），开发者均不承担责任。即使开发者已被告知可能发生上述损失亦然。
+
+## 5. 权限与隐私
+本软件可能需要系统权限以完成自动化功能。你同意在你的设备上自行授予必要权限，并自行评估该权限带来的风险。除为实现功能所必需的本地配置外，本软件不承诺一定不产生任何日志或临时文件；你应自行检查并妥善管理你的系统与数据。
+
+## 6. 终止
+若你违反本协议或法律法规，你的使用许可可被立即终止。终止后你应停止使用并删除本软件及其副本。
+
+## 7. 协议更新
+开发者可在不另行通知的情况下更新本协议。你继续使用即视为接受更新后的协议。
+`
+  }, [])
+
+  const getLocal = (k, fallback = '') => {
+    try {
+      const v = localStorage.getItem(k)
+      return v == null ? fallback : v
+    } catch (_) {
+      return fallback
+    }
+  }
+
+  const setLocal = (k, v) => {
+    try {
+      localStorage.setItem(k, String(v))
+    } catch (_) {}
+  }
+
+  const removeLocal = (k) => {
+    try {
+      localStorage.removeItem(k)
+    } catch (_) {}
+  }
+
+  const clearUsageInfo = () => {
+    // 仅清理本应用激活/试用相关的本地存储
+    removeLocal('cnc_device_uuid')
+    removeLocal('cnc_trial_used')
+    removeLocal('cnc_trial_expires_at')
+    removeLocal('cnc_license')
+    removeLocal('cnc_install_id')
+  }
+
+  const ensureDeviceUuid = () => {
+    const k = 'cnc_device_uuid'
+    const exist = (getLocal(k, '') || '').trim()
+    if (exist) return exist
+    const next = (globalThis.crypto?.randomUUID?.() || '').trim() || `uuid-${Date.now()}-${Math.random()}`
+    setLocal(k, next)
+    return next
+  }
+
+  const b64urlToBytes = (s) => {
+    const t = String(s || '').trim().replace(/-/g, '+').replace(/_/g, '/')
+    const pad = t.length % 4 === 0 ? '' : '='.repeat(4 - (t.length % 4))
+    const bin = atob(t + pad)
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
+    return out
+  }
+
+  const sha256Hex = async (text) => {
+    const enc = new TextEncoder().encode(String(text || ''))
+    const hash = await globalThis.crypto.subtle.digest('SHA-256', enc)
+    const bytes = new Uint8Array(hash)
+    let hex = ''
+    for (let i = 0; i < bytes.length; i += 1) hex += bytes[i].toString(16).padStart(2, '0')
+    return hex
+  }
+
+  const normalizeUuidForLicense = async (uuidStr) => {
+    const s = String(uuidStr || '').trim()
+    if (!s) throw new Error('UUID 不能为空')
+    const hexonly = s.replace(/[^a-fA-F0-9]/g, '')
+    if (hexonly.length >= 24) return hexonly.slice(0, 24).toLowerCase()
+    const seed = await sha256Hex(s)
+    return seed.slice(0, 24)
+  }
+
+  const decodeUtf8 = (bytes) => {
+    try {
+      return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+    } catch (_) {
+      return ''
+    }
+  }
+
+  const parseLicense = (licenseStr) => {
+    const s = String(licenseStr || '').trim()
+    const parts = s.split('.')
+    if (parts.length !== 3) return { ok: false, error: '激活码格式不正确' }
+    const [pfx, payloadB64Url, sigB64Url] = parts
+    if (!pfx || !payloadB64Url || !sigB64Url) return { ok: false, error: '激活码格式不正确' }
+    return { ok: true, pfx, payloadB64Url, sigB64Url }
+  }
+
+  const verifyLicenseForDevice = async (licenseStr, uuidRaw) => {
+    const parsed = parseLicense(licenseStr)
+    if (!parsed.ok) return parsed
+    if (String(parsed.pfx).trim() !== ACTIVATION_LICENSE_PREFIX) {
+      return { ok: false, error: `激活码前缀不匹配（期望 ${ACTIVATION_LICENSE_PREFIX}）` }
+    }
+    let msgBytes
+    let sigBytes
+    try {
+      msgBytes = b64urlToBytes(parsed.payloadB64Url)
+      sigBytes = b64urlToBytes(parsed.sigB64Url)
+    } catch (_) {
+      return { ok: false, error: '激活码内容无法解析' }
+    }
+    // 先验签（确保未被篡改且确实由对应私钥签发）
+    const sigOk = nacl.sign.detached.verify(msgBytes, sigBytes, activationPublicKeyBytes)
+    if (!sigOk) return { ok: false, error: '激活码校验失败：签名不合法（公钥/私钥不匹配或激活码被改动）' }
+
+    // 再校验 payload 字段（避免序列化细节造成误判）
+    const payloadRaw = decodeUtf8(msgBytes)
+    let payload
+    try {
+      payload = JSON.parse(payloadRaw || '{}')
+    } catch (_) {
+      return { ok: false, error: '激活码 payload 不是有效 JSON' }
+    }
+    if (!payload || typeof payload !== 'object') return { ok: false, error: '激活码 payload 格式错误' }
+
+    const deviceNorm = await normalizeUuidForLicense(uuidRaw)
+    const deviceInLic = String(payload.device || '')
+    const productInLic = String(payload.product || '')
+    const vInLic = Number(payload.v || 0)
+    if (vInLic !== 1) return { ok: false, error: '激活码版本不支持' }
+    if (productInLic !== ACTIVATION_PRODUCT_ID) {
+      return { ok: false, error: `激活码 product 不匹配（期望 ${ACTIVATION_PRODUCT_ID}，实际 ${productInLic || '—'}）` }
+    }
+    if (deviceInLic !== deviceNorm) {
+      return { ok: false, error: '激活码设备不匹配（UUID 不一致）' }
+    }
+    return { ok: true }
+  }
+
+  const refreshActivationStatus = async () => {
+    if (refreshLockRef.current) return
+    refreshLockRef.current = true
+    const now = Date.now()
+    const used = getLocal('cnc_trial_used', '0') === '1'
+    const expiresAt = Number(getLocal('cnc_trial_expires_at', '0') || '0') || 0
+    setTrialUsed(used)
+    if (expiresAt > now) {
+      setActivationStatus('trial')
+      setTrialRemainingMs(expiresAt - now)
+      refreshLockRef.current = false
+      return
+    }
+    setTrialRemainingMs(0)
+    if (expiresAt > 0 && expiresAt <= now) {
+      // 试用过期：清理过期时间，但保留 used=1
+      removeLocal('cnc_trial_expires_at')
+    }
+
+    const savedLic = (getLocal('cnc_license', '') || '').trim()
+    if (savedLic) {
+      try {
+        const r = await verifyLicenseForDevice(savedLic, ensureDeviceUuid())
+        if (r.ok) {
+          setActivationStatus('licensed')
+          refreshLockRef.current = false
+          return
+        }
+        // 许可证无效则清掉，回到未激活
+        removeLocal('cnc_license')
+      } catch (_) {
+        // ignore
       }
     }
-    poll()
-    return () => { cancelled = true }
+    setActivationStatus('unactivated')
+    refreshLockRef.current = false
+  }
+
+  useEffect(() => {
+    // 访问一次 /?reset=1 可清空本地”使用信息”
+    try {
+      const u = new URL(window.location.href)
+      if (u.searchParams.get('reset') === '1') {
+        clearUsageInfo()
+        u.searchParams.delete('reset')
+        window.location.replace(u.toString())
+        return
+      }
+    } catch (_) {}
+
+    // 删除标记检测：install.id 来自后端文件，项目被删它就消失
+    // 用 async IIFE 保证顺序：先检测 install_id（可能触发 clearUsageInfo），
+    // 再创建 UUID 和初始化激活状态，避免竞态
+    ;(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/install_id`)
+        const data = await res.json()
+        const serverId = (data.install_id || '').trim()
+        const localId = (getLocal('cnc_install_id', '') || '').trim()
+        if (serverId && serverId !== localId) {
+          clearUsageInfo()
+          setLocal('cnc_install_id', serverId)
+        }
+      } catch (_) {
+        // 后端没起来时不做处理
+      }
+
+      const u = ensureDeviceUuid()
+      setDeviceUuid(u)
+      refreshActivationStatus()
+    })()
+  }, [])
+
+  // 试用倒计时/过期回收
+  useEffect(() => {
+    const t = setInterval(() => {
+      refreshActivationStatus()
+    }, 1000)
+    return () => clearInterval(t)
   }, [])
 
   const readClipboardText = async () => {
@@ -77,7 +321,6 @@ function App() {
       body: JSON.stringify({
         text: t,
         initial_delay_seconds: 3,
-        auto_switch_ime: autoSwitchIme,
       }),
     })
       .then((r) => r.json())
@@ -134,21 +377,6 @@ function App() {
     return () => clearInterval(t)
   }, [pinyinCountdown])
 
-  // 打开输入源说明弹窗时拉取已保存的输入源配置
-  useEffect(() => {
-    if (!isImeHelpOpen) return
-    fetch(`${API_BASE}/api/input_source_config`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.status === 'success') {
-          const cfg = { ascii_id: data.ascii_id || '', pinyin_id: data.pinyin_id || '', switch_shortcut: data.switch_shortcut || 'cmd+space' }
-          setInputSourceConfig(cfg)
-          setSwitchShortcutInput(cfg.switch_shortcut)
-        }
-      })
-      .catch(() => {})
-  }, [isImeHelpOpen])
-
   // 点击页面其他区域关闭「选择录制」下拉
   useEffect(() => {
     if (!showJsonDropdown) return
@@ -170,18 +398,6 @@ function App() {
       window?.cnc?.settings?.setSelectedJson?.(selectedJson || '')
     } catch (_) {}
   }, [selectedJson])
-
-  // 把拼音输入的来源选项/文本同步给主进程，供全局快捷键使用
-  useEffect(() => {
-    try {
-      window?.cnc?.settings?.setPinyinText?.(name || '')
-      window?.cnc?.settings?.setPinyinSources?.({
-        button: pinyinSourceForButton,
-        shortcut: pinyinSourceForShortcut,
-      })
-      window?.cnc?.settings?.setAutoSwitchIme?.(autoSwitchIme)
-    } catch (_) {}
-  }, [name, pinyinSourceForButton, pinyinSourceForShortcut, autoSwitchIme])
 
   const handleStart = () => {
     setMessage('')
@@ -474,29 +690,147 @@ function App() {
     }
   }
 
-  if (!backendReady) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="drag-handle" aria-hidden="true" />
-        <div className="bg-white rounded-2xl shadow-lg px-8 py-6 text-center">
-          <p className="text-gray-600 text-sm">正在启动后端服务…</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       <div className="drag-handle" aria-hidden="true" />
       <Stepper
-        initialStep={1}
-        onStepChange={(step) => {
-          console.log(step);
-        }}
-        onFinalStepCompleted={() => console.log("All steps completed!")}
-        backButtonText="Previous"
-        nextButtonText="Next"
+        key={isActivated ? 'active' : 'inactive'}
+        initialStep={isActivated ? 2 : 1}
+        onStepChange={() => {}}
+        onFinalStepCompleted={() => {}}
+        backButtonText="上一步"
+        nextButtonText="下一步"
+        disableStepIndicators={!isActivated}
+        nextDisabled={!isActivated}
       >
+        <Step>
+          {isActivated ? (
+            <div className="text-sm text-gray-500 text-center py-8">
+              已激活，无需重复激活
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-lg font-semibold">激活</div>
+                <div className="text-xs text-gray-500">
+                  状态：{activationStatus === 'licensed' ? '已激活' : activationStatus === 'trial' ? `试用中（剩余 ${Math.ceil(trialRemainingMs / 1000)}s）` : '未激活'}
+                </div>
+              </div>
+
+              {/* 从上到下：开始试用 / UUID / 激活码 */}
+              {!trialUsed ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserAgreementMode('accept_to_start_trial')
+                      setIsUserAgreementOpen(true)
+                    }}
+                    className="relative w-1/3 bg-green-500 hover:bg-green-600 text-white font-medium text-sm h-10 px-3 rounded-lg transition duration-300 shadow-md active:scale-95 transform pr-9"
+                  >
+                    <span className="block text-center">开始试用</span>
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setUserAgreementMode('view')
+                        setIsUserAgreementOpen(true)
+                      }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-5 h-5 rounded-full border border-white/50 bg-white/10 text-white text-[12px] leading-none hover:bg-white/15 cursor-pointer select-none"
+                      title="用户协议"
+                      aria-label="用户协议"
+                    >
+                      ?
+                    </span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserAgreementMode('view')
+                      setIsUserAgreementOpen(true)
+                    }}
+                    className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 text-[12px] leading-none"
+                    title="用户协议"
+                    aria-label="用户协议"
+                  >
+                    ?
+                  </button>
+                </div>
+              )}
+
+              {/* UUID 与 激活码：完全一致的布局（左标签 + 右内容/输入 + 右侧按钮） */}
+              <div className="flex items-stretch gap-2">
+                <div className="flex-1 h-10 border border-gray-300 rounded-lg px-3 bg-white flex items-center gap-2 overflow-hidden">
+                  <span className="text-[11px] text-gray-400 select-none shrink-0">UUID</span>
+                  <input
+                    value={deviceUuid || '—'}
+                    readOnly
+                    className="flex-1 bg-transparent outline-none min-w-0 font-mono text-[11px] text-gray-700 truncate"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = String(deviceUuid || '').trim()
+                    if (!t) return
+                    navigator.clipboard?.writeText?.(t).catch(() => {})
+                    setActivationUiMessage('已复制 UUID')
+                    setTimeout(() => setActivationUiMessage(''), 1200)
+                  }}
+                  className="h-10 shrink-0 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium text-sm px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform"
+                >
+                  复制
+                </button>
+              </div>
+
+              <div className="flex items-stretch gap-2">
+                <div className="flex-1 h-10 border border-gray-300 rounded-lg px-3 bg-white flex items-center gap-2 overflow-hidden">
+                  <span className="text-[11px] text-gray-400 select-none shrink-0">激活码</span>
+                  <input
+                    value={activationCode}
+                    onChange={(e) => setActivationCode(e.target.value)}
+                    className="flex-1 bg-transparent outline-none text-sm min-w-0"
+                    placeholder=""
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setActivationUiMessage('')
+                    const code = String(activationCode || '').trim()
+                    if (!code) {
+                      setActivationUiMessage('请输入激活码')
+                      return
+                    }
+                    try {
+                      const r = await verifyLicenseForDevice(code, deviceUuid || ensureDeviceUuid())
+                      if (r.ok) {
+                        setLocal('cnc_license', code)
+                        setActivationStatus('licensed')
+                        setActivationUiMessage('激活成功')
+                        setTimeout(() => setActivationUiMessage(''), 1500)
+                      } else {
+                        setActivationUiMessage(r.error || '激活失败')
+                      }
+                    } catch (_) {
+                      setActivationUiMessage('激活失败')
+                    }
+                  }}
+                  className="h-10 shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform"
+                >
+                  激活
+                </button>
+              </div>
+
+              {(activationUiMessage || activationUiMessage === '') && activationUiMessage ? (
+                <div className="text-sm text-gray-600">{activationUiMessage}</div>
+              ) : null}
+            </div>
+          )}
+        </Step>
+
         <Step>
           <div className="flex flex-col space-y-2">
             <div className="flex items-center space-x-3">
@@ -566,6 +900,8 @@ function App() {
             </div>
           </div>
         </Step>
+
+        {/* 4：模拟点击/管理（前移） */}
         <Step>
           <div className={`flex flex-col gap-4 w-full transition-all duration-500 ${isManageMode ? 'items-center' : ''}`}>
             {!isManageMode ? (
@@ -709,42 +1045,16 @@ function App() {
             )}
           </div>
         </Step>
+
+        {/* 2：键盘输入 */}
         <Step>
-          <h2>Final Step</h2>
-          <p>You made it!</p>
-        </Step>
-        <Step>
-          <h2>拼音输入</h2>
+          <h2>键盘输入</h2>
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">输入完成前不要试图操作电脑，否则可能导致电脑死机（强制重启可以解决）</p>
-          <div className="flex items-center gap-3 flex-wrap mb-3 text-sm text-gray-700">
-            <label className="flex items-center gap-2">
-              开始输入按钮：
-              <select
-                value={pinyinSourceForButton}
-                onChange={(e) => setPinyinSourceForButton(e.target.value)}
-                className="border border-gray-300 rounded px-2 py-1 bg-white"
-              >
-                <option value="textbox">输入框</option>
-                <option value="clipboard">剪贴板</option>
-              </select>
-            </label>
-            <label className="flex items-center gap-2">
-              快捷键：
-              <select
-                value={pinyinSourceForShortcut}
-                onChange={(e) => setPinyinSourceForShortcut(e.target.value)}
-                className="border border-gray-300 rounded px-2 py-1 bg-white"
-              >
-                <option value="textbox">输入框</option>
-                <option value="clipboard">剪贴板</option>
-              </select>
-            </label>
-          </div>
           <div className="relative w-full mb-3">
             <textarea
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="例如：你好，world。或 nihao，world。"
+              placeholder="输入要键入的内容（中英文均可）"
               className="bg-gray-100 text-gray-900 border border-gray-300 rounded px-3 py-2 w-full min-h-[2.5rem] resize-y pr-7"
               rows={3}
               style={{ resize: 'vertical' }}
@@ -762,23 +1072,10 @@ function App() {
           <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => {
-              if (pinyinSourceForButton === 'clipboard') {
-                readClipboardText().then((t) => {
-                  if (!t) {
-                    setMessage('剪贴板为空或无权限读取')
-                    setTimeout(() => setMessage(''), 2000)
-                    return
-                  }
-                  requestPinyinInput(t)
-                })
-              } else {
-                requestPinyinInput(name || '')
-              }
-            }}
+            onClick={() => requestPinyinInput(name || '')}
             className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform"
           >
-            开始输入
+            开始输入（3s 后键入）
           </button>
           <button
             type="button"
@@ -786,23 +1083,6 @@ function App() {
             className="bg-gray-200 hover:bg-gray-300 text-gray-600 font-medium py-1.5 px-4 rounded-lg transition duration-300 active:scale-95 transform"
           >
             清空
-          </button>
-          <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
-            <input
-              type="checkbox"
-              checked={autoSwitchIme}
-              onChange={(e) => setAutoSwitchIme(e.target.checked)}
-            />
-            自动切换输入源
-          </label>
-          <button
-            type="button"
-            onClick={() => setIsImeHelpOpen(true)}
-            className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100"
-            title="查看自动切换输入源说明"
-            aria-label="查看自动切换输入源说明"
-          >
-            ?
           </button>
           </div>
           {pinyinCountdown > 0 && (
@@ -815,7 +1095,7 @@ function App() {
           )}
         </Step>
       </Stepper>
-      
+
       {/* 重命名模态框 */}
       {isRenameModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -851,21 +1131,21 @@ function App() {
         </div>
       )}
 
-      {/* 自动切换输入源说明 */}
-      {isImeHelpOpen && (
+      {/* 用户协议弹窗 */}
+      {isUserAgreementOpen && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-          onMouseDown={() => { setIsImeHelpOpen(false); setCurrentInputSourceInfo(null) }}
+          onMouseDown={() => setIsUserAgreementOpen(false)}
         >
           <div
             className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-4 mb-4">
-              <h3 className="text-lg font-semibold">自动切换输入源说明</h3>
+              <h3 className="text-lg font-semibold">用户协议</h3>
               <button
                 type="button"
-                onClick={() => { setIsImeHelpOpen(false); setCurrentInputSourceInfo(null) }}
+                onClick={() => setIsUserAgreementOpen(false)}
                 className="text-gray-500 hover:text-gray-700 px-2 py-1"
                 aria-label="关闭"
               >
@@ -873,169 +1153,45 @@ function App() {
               </button>
             </div>
 
-            <div className="space-y-4 text-sm text-gray-700">
-              <div>
-                <div className="font-medium mb-1">它做什么</div>
-                <p className="text-gray-600">
-                  在输入“英文/编程术语段”前，程序会通过<strong>你设置的切换快捷键</strong>临时切到英文输入源逐字输入，输入完再切回拼音，尽量保证
-                  <span className="font-mono"> . , : ; () {} [] </span> 等符号为英文半角。
-                </p>
-              </div>
+            <div className="space-y-3 text-sm text-gray-700 whitespace-pre-wrap">
+              {USER_AGREEMENT_MD}
+            </div>
 
-              <div>
-                <div className="font-medium mb-1">切换快捷键</div>
-                <p className="mb-2 text-gray-600">
-                  程序用该快捷键循环切换输入法。请<strong>直接填写</strong>你在系统里设置的组合（小写，用 + 连接），例如：<span className="font-mono">cmd+space</span>、<span className="font-mono">ctrl+space</span>。
-                </p>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <input
-                    type="text"
-                    value={switchShortcutInput}
-                    onChange={(e) => setSwitchShortcutInput((e.target.value || '').trim().toLowerCase())}
-                    placeholder="cmd+space"
-                    className="font-mono px-3 py-1.5 border border-gray-300 rounded w-40"
-                  />
+            <div className="pt-4 flex justify-end gap-2">
+              {userAgreementMode === 'accept_to_start_trial' ? (
+                <>
                   <button
                     type="button"
                     onClick={() => {
-                      const v = (switchShortcutInput || 'cmd+space').trim().toLowerCase() || 'cmd+space'
-                      fetch(`${API_BASE}/api/input_source_config`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ switch_shortcut: v }),
-                      })
-                        .then((r) => r.json())
-                        .then((data) => {
-                          if (data.status === 'success') {
-                            setInputSourceConfig(prev => ({ ...prev, switch_shortcut: data.switch_shortcut || v }))
-                            setSwitchShortcutInput(data.switch_shortcut || v)
-                          }
-                        })
-                        .catch(() => {})
+                      setIsUserAgreementOpen(false)
                     }}
-                    className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 rounded text-sm"
+                    className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded"
                   >
-                    保存
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">当前已保存：{(inputSourceConfig.switch_shortcut || 'cmd+space').split('+').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('+')}</p>
-              </div>
-
-              <div>
-                <div className="font-medium mb-1">使用前提</div>
-                <ul className="list-disc pl-5 space-y-1 text-gray-600">
-                  <li><strong>先完成下方「识别并保存输入源」</strong>：在本机把「英文」和「拼音」各识别一次，程序会记住 ID，之后才能正确区分。</li>
-                  <li>系统中至少要有你常用的<strong>一个英文输入源</strong>（如 ABC）和<strong>一个拼音输入源</strong>；若不止两个输入源，用你设置的快捷键循环切换时可能切到别的输入法。</li>
-                  <li>已给本程序（或 Electron）授予<strong>“辅助功能”</strong>、<strong>“输入监控”</strong>等权限，否则无法模拟按键与切换输入源。</li>
-                </ul>
-              </div>
-
-              <div>
-                <div className="font-medium mb-1">识别并保存输入源（必做一次）</div>
-                <p className="mb-2 text-gray-600">
-                  不同电脑的输入源 ID 可能不同，程序不能写死。请按下面两步操作，让程序记住你本机的「英文」和「拼音」分别对应哪个 ID：
-                </p>
-                <ol className="list-decimal pl-5 space-y-1 text-gray-600 mb-2">
-                  <li>先切换到<strong>英文</strong>输入法（如 ABC），点击「将当前设为英文」。</li>
-                  <li>再切换到<strong>拼音</strong>输入法，点击「将当前设为拼音」。</li>
-                </ol>
-                <div className="mb-2 p-2 bg-gray-50 rounded text-xs">
-                  <div className="font-mono break-all">已保存 英文 ID: {inputSourceConfig.ascii_id || '—'}</div>
-                  <div className="font-mono break-all mt-1">已保存 拼音 ID: {inputSourceConfig.pinyin_id || '—'}</div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      fetch(`${API_BASE}/api/input_source_set_ascii`, { method: 'POST' })
-                        .then((r) => r.json())
-                        .then((data) => {
-                          if (data.status === 'success') {
-                            setInputSourceConfig(prev => ({ ...prev, ascii_id: data.ascii_id || '', pinyin_id: data.pinyin_id || '' }))
-                          }
-                        })
-                        .catch(() => {})
-                    }}
-                    className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 rounded text-sm"
-                  >
-                    将当前输入源设为英文
+                    拒绝
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      fetch(`${API_BASE}/api/input_source_set_pinyin`, { method: 'POST' })
-                        .then((r) => r.json())
-                        .then((data) => {
-                          if (data.status === 'success') {
-                            setInputSourceConfig(prev => ({ ...prev, ascii_id: data.ascii_id || '', pinyin_id: data.pinyin_id || '' }))
-                          }
-                        })
-                        .catch(() => {})
+                      const expiresAt = Date.now() + TRIAL_SECONDS * 1000
+                      setLocal('cnc_trial_used', '1')
+                      setLocal('cnc_trial_expires_at', String(expiresAt))
+                      setActivationStatus('trial')
+                      setIsUserAgreementOpen(false)
                     }}
-                    className="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 rounded text-sm"
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
                   >
-                    将当前输入源设为拼音
+                    我同意
                   </button>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrentInputSourceInfo(null)
-                      fetch(`${API_BASE}/api/current_input_source`)
-                        .then((r) => r.json())
-                        .then((data) => {
-                          if (data.status === 'success') setCurrentInputSourceInfo(data)
-                          else setCurrentInputSourceInfo({ error: data.message || '读取失败' })
-                        })
-                        .catch(() => setCurrentInputSourceInfo({ error: '无法连接后端' }))
-                    }}
-                    className="text-blue-600 hover:underline text-xs"
-                  >
-                    查看当前输入源 ID
-                  </button>
-                </div>
-                {currentInputSourceInfo && (
-                  <div className="mt-2 p-2 bg-gray-100 rounded text-xs font-mono break-all">
-                    {currentInputSourceInfo.error ? (
-                      <span className="text-red-600">{currentInputSourceInfo.error}</span>
-                    ) : (
-                      <>
-                        <div>当前 ID: {currentInputSourceInfo.id || '—'}</div>
-                        {currentInputSourceInfo.name && <div>名称: {currentInputSourceInfo.name}</div>}
-                        <div>程序识别为: {currentInputSourceInfo.id_hint || '—'}</div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <div className="font-medium mb-1">可能限制</div>
-                <ul className="list-disc pl-5 space-y-1 text-gray-600">
-                  <li>若有多个输入源，用你设置的快捷键会按系统顺序循环，可能切到非英/拼音的输入法。</li>
-                  <li>部分应用在切换输入源后首字符可能有延迟或丢失。</li>
-                  <li>远程桌面、虚拟机或高权限窗口可能拦截模拟按键。</li>
-                </ul>
-              </div>
-
-              <div>
-                <div className="font-medium mb-1">什么时候建议关闭</div>
-                <ul className="list-disc pl-5 space-y-1 text-gray-600">
-                  <li>输入源多于两个，或未在下方设置成你实际使用的切换快捷键。</li>
-                  <li>自动切换导致乱码或不稳定，想先关闭以排查问题。</li>
-                </ul>
-              </div>
-
-              <div className="pt-2 flex justify-end">
+                </>
+              ) : (
                 <button
                   type="button"
-                  onClick={() => { setIsImeHelpOpen(false); setCurrentInputSourceInfo(null) }}
+                  onClick={() => setIsUserAgreementOpen(false)}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
                 >
                   知道了
                 </button>
-              </div>
+              )}
             </div>
           </div>
         </div>

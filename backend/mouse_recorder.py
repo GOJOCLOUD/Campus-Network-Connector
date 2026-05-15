@@ -3,8 +3,7 @@ import time
 import os
 from datetime import datetime
 
-# 逐字符输入时的间隔（秒），模拟真人按键，避免被识别为粘贴
-TYPE_CHAR_DELAY = 0.04
+from keyboard_sender import send_text
 
 
 class MouseRecorder:
@@ -12,7 +11,6 @@ class MouseRecorder:
         # pynput 在 macOS 上会触发辅助功能/事件监听相关组件加载，导致 Dock 出现 Python 图标。
         # 这里按需导入：只有真正需要录制/回放时才加载，避免 FastAPI 启动阶段就弹出。
         self._mouse = None
-        self._keyboard = None
 
         self.is_recording = False
         self.click_positions = []
@@ -21,7 +19,6 @@ class MouseRecorder:
         self.is_playing = False
         self.last_play_end_time = 0  # 上次回放结束时间，用于冷却期内拒绝新回放（防止模拟点击再次触发按钮）
         self.mouse_controller = None
-        self.keyboard_controller = None
         self.last_click_time = 0
         self.click_cooldown = 0.2  # 200ms的冷却时间，防止重复记录
         self.listener = None
@@ -29,16 +26,13 @@ class MouseRecorder:
         self.exclude_rect = None
 
     def _ensure_pynput(self):
-        if self._mouse is not None and self._keyboard is not None:
+        if self._mouse is not None:
             return
-        from pynput import mouse, keyboard  # 延迟导入
+        from pynput import mouse  # 延迟导入
 
         self._mouse = mouse
-        self._keyboard = keyboard
         if self.mouse_controller is None:
             self.mouse_controller = mouse.Controller()
-        if self.keyboard_controller is None:
-            self.keyboard_controller = keyboard.Controller()
 
     def _is_inside_exclude(self, x, y):
         if not self.exclude_rect:
@@ -110,13 +104,8 @@ class MouseRecorder:
         return True
 
     def _type_as_keys(self, text):
-        """逐字符模拟键盘输入，避免被目标程序识别为粘贴。"""
-        for char in text:
-            try:
-                self.keyboard_controller.type(char)
-            except Exception:
-                pass
-            time.sleep(TYPE_CHAR_DELAY)
+        """直接 Unicode 注入，绕过输入法。"""
+        send_text(text)
 
     def _play_clicks(self, clicks, interval=0.5, inputs=None):
         """

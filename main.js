@@ -191,11 +191,8 @@ function createWindow() {
     height: 640,
     minWidth: 460,
     minHeight: 560,
-    frame: true,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 14 },
-    transparent: false,
-    backgroundColor: '#ffffff',
+    frame: false,
+    transparent: true,
     alwaysOnTop: true,
     show: false,
     webPreferences: {
@@ -267,6 +264,13 @@ function registerShortcuts() {
 
 app.on('ready', () => {
   loadSettings();
+
+  ipcMain.handle('window:quit', () => { app.quit(); });
+  ipcMain.handle('window:minimize', () => { if (mainWindow) mainWindow.minimize(); });
+  ipcMain.handle('window:maximize', () => {
+    if (!mainWindow) return;
+    mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
+  });
 
   ipcMain.on('settings:setSelectedJson', (_e, fileName) => {
     selectedJsonSetting = String(fileName || '');

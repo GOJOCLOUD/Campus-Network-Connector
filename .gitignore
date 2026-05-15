@@ -29,3 +29,9 @@ dist-ssr
 
 # 用户在本机识别的输入源 ID（英文/拼音），不提交
 backend/input_source_config.json
+
+# 激活码签发私钥（勿提交）
+license-issuer_副本/
+
+# 安装标记（自动生成）
+backend/install.id

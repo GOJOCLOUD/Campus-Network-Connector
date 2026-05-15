@@ -8,6 +8,7 @@ from typing import Optional
 from datetime import datetime
 import os
 import sys
+import uuid
 
 from fastapi import Body, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +25,20 @@ play_worker_last_end_time = 0.0
 pinyin_worker_lock = threading.Lock()
 pinyin_worker_is_running = False
 pinyin_worker_last_end_time = 0.0
+
+_BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+_INSTALL_FILE = os.path.join(_BACKEND_DIR, "install.id")
+
+
+def _get_install_id() -> str:
+    """读取或创建 install.id，项目被删它就消失，重装自动重置。"""
+    if os.path.isfile(_INSTALL_FILE):
+        with open(_INSTALL_FILE, "r") as f:
+            return f.read().strip()
+    fresh = str(uuid.uuid4())
+    with open(_INSTALL_FILE, "w") as f:
+        f.write(fresh + "\n")
+    return fresh
 
 
 class PlayRequest(BaseModel):
@@ -93,6 +108,12 @@ def root():
 @app.get("/api/health")
 def health():
     return {"status": "success", "message": "ok"}
+
+
+@app.get("/api/install_id")
+def install_id():
+    """返回项目级唯一安装标记，删项目 = 删标记 = 下次是全新安装。"""
+    return {"install_id": _get_install_id()}
 
 
 @app.get("/api/current_input_source")
