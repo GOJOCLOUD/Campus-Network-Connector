@@ -13,6 +13,29 @@ let pinyinSourcesSetting = { button: 'textbox', shortcut: 'clipboard' };
 let autoSwitchImeSetting = true;
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 
+const BACKEND_RESTART_MAX = 3;
+let backendRestartCount = 0;
+
+// 单实例锁：防止启动多个进程抢端口
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      mainWindow.isMinimized() ? mainWindow.restore() : mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
+// 启动前清理占着 51888 端口的孤儿进程
+function killOrphanProcesses() {
+  try {
+    execSync(`lsof -ti tcp:${BACKEND_PORT} 2>/dev/null | xargs kill -9 2>/dev/null`, { stdio: 'ignore' });
+  } catch (_) {}
+}
+
 function loadSettings() {
   try {
     const fp = SETTINGS_FILE();
@@ -161,7 +184,6 @@ async function ensureBackendStarted() {
   const env = {
     ...process.env,
     PYTHONUNBUFFERED: '1',
-    // 后端会再 spawn automation_worker.py；不设置会退回用系统 python3，导致依赖缺失/行为不一致
     PYTHON: pythonExe,
   };
   if (pythonHome) {
@@ -169,21 +191,41 @@ async function ensureBackendStarted() {
     env.PYTHONNOUSERSITE = '1';
   }
 
-  backendProcess = spawn(pythonExe, ['-u', 'main.py'], {
-    cwd: backendDir,
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  for (let attempt = 0; attempt <= BACKEND_RESTART_MAX; attempt++) {
+    if (attempt > 0) {
+      console.log(`[backend] restart attempt ${attempt}/${BACKEND_RESTART_MAX}...`);
+      await new Promise((r) => setTimeout(r, 1500));
+    }
 
-  backendProcess.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`));
-  backendProcess.stderr.on('data', (d) => process.stderr.write(`[backend-err] ${d}`));
-  backendProcess.on('error', (err) => console.error(`[backend] spawn error: ${err.message}`));
-  backendProcess.on('exit', (code) => {
-    console.log(`[backend] exited with code ${code}`);
-    backendProcess = null;
-  });
+    // 启动前确保端口没有被残留进程占用
+    killOrphanProcesses();
 
-  return waitBackendReady();
+    const proc = spawn(pythonExe, ['-u', 'main.py'], {
+      cwd: backendDir,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    proc.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`));
+    proc.stderr.on('data', (d) => process.stderr.write(`[backend-err] ${d}`));
+    proc.on('error', (err) => console.error(`[backend] spawn error: ${err.message}`));
+
+    if (await waitBackendReady()) {
+      // 成功——挂上退出清理，替换旧进程引用
+      if (backendProcess && !backendProcess.killed) backendProcess.kill();
+      backendProcess = proc;
+      backendProcess.on('exit', (code) => {
+        console.log(`[backend] exited with code ${code}`);
+        backendProcess = null;
+      });
+      return true;
+    }
+
+    // 没起来 —— 杀掉再试
+    if (!proc.killed) proc.kill();
+  }
+
+  return false;
 }
 
 function createWindow() {
@@ -312,7 +354,7 @@ app.on('activate', () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
 app.on('before-quit', () => {
@@ -322,4 +364,5 @@ app.on('before-quit', () => {
   if (backendProcess && !backendProcess.killed) {
     backendProcess.kill();
   }
+  killOrphanProcesses();
 });
