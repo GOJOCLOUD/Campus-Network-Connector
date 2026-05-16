@@ -77,7 +77,14 @@
       "target": [
         "dir"
       ],
+      "identity": null,
       "artifactName": "${productName}-mac-${version}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "${productName}-win-${version}.${ext}"
     }
   }
 }
