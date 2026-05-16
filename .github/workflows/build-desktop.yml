@@ -26,12 +26,10 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build DMG（bundle Python + electron-builder）
+      - name: Build DMG（bundle Python + electron-builder + afterPack sign）
         run: |
           chmod +x scripts/bundle-python-runtime.sh
-          npm run bundle:python
-          npm run build
-          npx electron-builder --mac dmg --publish never
+          npm run dist:mac:arm64
 
       - name: Resolve DMG path
         id: dmg
