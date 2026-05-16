@@ -252,11 +252,6 @@ function App() {
   }
 
   useEffect(() => {
-    // Electron 版启动时清除旧的试用/激活状态，方便测试
-    if (window?.cnc?.clipboardReadText) {
-      clearUsageInfo()
-    }
-
     // 访问一次 /?reset=1 可清空本地”使用信息”
     try {
       const u = new URL(window.location.href)
