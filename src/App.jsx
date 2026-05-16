@@ -10,7 +10,7 @@ function App() {
   const ACTIVATION_PUBLIC_KEY_B64 = 'j5FyVLxHq1KZLNMrWYey+pfbq/wRSghcy7URZLmiYBU='
   const ACTIVATION_PRODUCT_ID = 'campus-network-connector'
   const ACTIVATION_LICENSE_PREFIX = 'cs1'
-  const TRIAL_SECONDS = 30
+  const TRIAL_SECONDS = 604800 // 7 天
 
   const [name, setName] = useState('')
   const [isRecording, setIsRecording] = useState(false)
@@ -252,6 +252,11 @@ function App() {
   }
 
   useEffect(() => {
+    // Electron 版启动时清除旧的试用/激活状态，方便测试
+    if (window?.cnc?.clipboardReadText) {
+      clearUsageInfo()
+    }
+
     // 访问一次 /?reset=1 可清空本地”使用信息”
     try {
       const u = new URL(window.location.href)
@@ -376,6 +381,52 @@ function App() {
     }, 1000)
     return () => clearInterval(t)
   }, [pinyinCountdown])
+
+  const defaultExecuteRef = useRef(null)
+
+  useEffect(() => {
+    const el = document.createElement('div')
+    el.id = 'cc-kbd-debug'
+    el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;font:11px monospace;color:#fff;background:rgba(0,0,0,0.8);padding:2px 8px;z-index:99999'
+    document.body.appendChild(el)
+
+    const onKeyDown = (e) => {
+      el.textContent = `key="${e.key}" code="${e.code}" ctrl=${e.ctrlKey} shift=${e.shiftKey} alt=${e.altKey} meta=${e.metaKey}`
+
+      if (e.ctrlKey && e.shiftKey && e.code === 'KeyA') {
+        e.preventDefault()
+        defaultExecuteRef.current()
+      }
+      if (e.ctrlKey && e.shiftKey && e.code === 'KeyD') {
+        e.preventDefault()
+        setMessage('读取剪贴板中...')
+        setTimeout(() => setMessage(''), 2000)
+        navigator.clipboard.readText().then((text) => {
+          if (!(text || '').trim()) {
+            setMessage('剪贴板为空')
+            setTimeout(() => setMessage(''), 2000)
+            return
+          }
+          fetch(`${API_BASE}/api/pinyin_input`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, initial_delay_seconds: 0 }),
+          })
+            .then((r) => r.json())
+            .then((data) => {
+              setMessage(data.status === 'success' ? '开始输入' : (data.message || '输入失败'))
+              setTimeout(() => setMessage(''), 2000)
+            })
+            .catch(() => setMessage('输入请求失败'))
+        }).catch(() => setMessage('无法读取剪贴板，请确认已授权'))
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      el.remove()
+    }
+  }, [])
 
   // 点击页面其他区域关闭「选择录制」下拉
   useEffect(() => {
@@ -689,6 +740,9 @@ function App() {
       });
     }
   }
+
+  // 键盘快捷键用的函数引用（在函数定义之后赋值，避免 const 未提升问题）
+  defaultExecuteRef.current = handleDefaultExecute
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
@@ -1049,7 +1103,7 @@ function App() {
         {/* 2：键盘输入 */}
         <Step>
           <h2>键盘输入</h2>
-          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">输入完成前不要试图操作电脑，否则可能导致电脑死机（强制重启可以解决）</p>
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">输入完成前不要尝试操作电脑，否则可能导致电脑死机（强制重启可以解决）</p>
           <div className="relative w-full mb-3">
             <textarea
               value={name}

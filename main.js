@@ -5,6 +5,7 @@ const http = require('http');
 const fs = require('fs');
 
 const BACKEND_PORT = 51888;
+let mainWindow = null;
 let backendProcess = null;
 let selectedJsonSetting = '';
 let pinyinTextSetting = '';
@@ -186,7 +187,7 @@ async function ensureBackendStarted() {
 }
 
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 520,
     height: 640,
     minWidth: 460,
@@ -250,16 +251,15 @@ async function triggerPinyinFromClipboard() {
 
 function registerShortcuts() {
   // 快捷键说明：
-  // - Electron globalShortcut 语法为“组合键”
-  // - macOS 的 Option 键在 Electron 里对应 Alt
-  // 选择 Option(Alt)+<键> 是为了避免自动输入时误触发纯字母组合。
-  const ok1 = globalShortcut.register('Alt+D', () => {
+  // 统一使用 Ctrl+Shift 避免 macOS Option 冲突
+  // 注意 Ctrl 在 macOS 对应键盘左下角的 control 键，不是 Cmd
+  const ok1 = globalShortcut.register('Ctrl+Shift+A', () => {
     triggerDefaultExecute().catch((e) => console.error('[shortcut] default execute failed', e));
   });
-  const ok2 = globalShortcut.register('Alt+A', () => {
+  const ok2 = globalShortcut.register('Ctrl+Shift+D', () => {
     triggerPinyinFromClipboard().catch((e) => console.error('[shortcut] pinyin failed', e));
   });
-  console.log(`[shortcut] register Alt+D=${ok1} Alt+A=${ok2}`);
+  console.log(`[shortcut] register Ctrl+Shift+A=${ok1} (默认执行) Ctrl+Shift+D=${ok2} (自动输入)`);
 }
 
 app.on('ready', () => {
