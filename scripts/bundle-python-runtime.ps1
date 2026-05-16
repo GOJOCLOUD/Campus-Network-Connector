@@ -36,3 +36,28 @@ Write-Host "Installing pip dependencies ..."
 & $Py -m pip install --no-warn-script-location -r $Requirements
 
 Write-Host "Done. Python: $(& $Py -c 'import sys; print(sys.executable)')"
+
+# ---- 清理无用文件，压缩体积 ----
+Write-Host "Cleaning up to reduce size ..."
+
+$LibDir = Join-Path $RuntimeDir "python\Lib"
+$SiteDir = Join-Path $LibDir "site-packages"
+
+# 移除 pip
+Remove-Item -Recurse -Force (Join-Path $SiteDir "pip") -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\pip\cache" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "$env:APPDATA\pip" -ErrorAction SilentlyContinue
+Get-ChildItem $SiteDir -Filter "*.whl" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+
+# 清理 __pycache__
+Get-ChildItem $RuntimeDir -Directory -Filter "__pycache__" -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem $RuntimeDir -Filter "*.pyc" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+
+# 移除不必要的标准库模块
+foreach ($mod in @("tkinter", "idlelib", "ensurepip", "distutils", "lib2to3")) {
+    Remove-Item -Recurse -Force (Join-Path $LibDir $mod) -ErrorAction SilentlyContinue
+}
+
+Remove-Item -Recurse -Force (Join-Path $RuntimeDir "python\share") -ErrorAction SilentlyContinue
+
+Write-Host "Cleanup done."

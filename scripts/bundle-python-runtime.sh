@@ -43,4 +43,24 @@ export PYTHONNOUSERSITE=1
 "$PY" -m pip install --no-warn-script-location --upgrade pip
 "$PY" -m pip install --no-warn-script-location -r "$ROOT/backend/requirements.txt"
 
+# ---- 清理无用文件，压缩体积 ----
+echo "Cleaning up to reduce size ..."
+
+LIBDIR="$RUNTIME_DIR/python/lib/python3.12"
+SITEDIR="$LIBDIR/site-packages"
+
+rm -rf "$SITEDIR/pip" 2>/dev/null || true
+rm -rf "$HOME/.cache/pip" 2>/dev/null || true
+find "$SITEDIR" -name "*.whl" -delete 2>/dev/null || true
+
+find "$RUNTIME_DIR/python" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+find "$RUNTIME_DIR/python" -name "*.pyc" -delete 2>/dev/null || true
+
+for mod in tkinter idlelib ensurepip distutils lib2to3; do
+  rm -rf "$LIBDIR/$mod" 2>/dev/null || true
+done
+
+rm -rf "$RUNTIME_DIR/python/share" 2>/dev/null || true
+find "$RUNTIME_DIR/python" -name "*.a" -delete 2>/dev/null || true
+
 echo "Done. Python: $("$PY" -c 'import sys; print(sys.executable)')"
