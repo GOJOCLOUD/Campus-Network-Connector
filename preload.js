@@ -9,8 +9,12 @@ contextBridge.exposeInMainWorld('cnc', {
   minimize() { ipcRenderer.invoke('window:minimize').catch(() => {}); },
   maximize() { ipcRenderer.invoke('window:maximize').catch(() => {}); },
 
-  // Install ID
-  getInstallId() { return ipcRenderer.invoke('getInstallId'); },
+  // Activation
+  getActivationSnapshot() { return ipcRenderer.invoke('activation:getSnapshot'); },
+  startTrial(expiresAt) { return ipcRenderer.invoke('activation:startTrial', expiresAt); },
+  saveLicense(license) { return ipcRenderer.invoke('activation:saveLicense', license); },
+  clearLicense() { return ipcRenderer.invoke('activation:clearLicense'); },
+  migrateLegacyActivation(legacy) { return ipcRenderer.invoke('activation:migrateLegacy', legacy); },
 
   // Mouse
   mouseClick(x, y) { return ipcRenderer.invoke('native:mouseClick', x, y); },

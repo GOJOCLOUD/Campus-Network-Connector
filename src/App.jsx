@@ -1,15 +1,11 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Stepper, { Step } from './components/Stepper'
-import nacl from 'tweetnacl'
 
 // cnc API helper — maps to window.cnc IPC calls
 const cnc = window.cnc || {};
 
 function App() {
-  const ACTIVATION_PUBLIC_KEY_B64 = 'j5FyVLxHq1KZLNMrWYey+pfbq/wRSghcy7URZLmiYBU='
-  const ACTIVATION_PRODUCT_ID = 'campus-network-connector'
-  const ACTIVATION_LICENSE_PREFIX = 'cs1'
   const TRIAL_SECONDS = 604800 // 7 天
 
   const [name, setName] = useState('')
@@ -41,14 +37,6 @@ function App() {
   const [userAgreementMode, setUserAgreementMode] = useState('view')
   const [activationUiMessage, setActivationUiMessage] = useState('')
   const refreshLockRef = useRef(false)
-
-  const activationPublicKeyBytes = useMemo(() => {
-    const b64 = (ACTIVATION_PUBLIC_KEY_B64 || '').trim()
-    const bin = atob(b64)
-    const out = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
-    return out
-  }, [])
 
   const isActivated = activationStatus === 'trial' || activationStatus === 'licensed'
 
@@ -94,15 +82,11 @@ function App() {
     } catch (_) { return fallback }
   }
 
-  const setLocal = (k, v) => {
-    try { localStorage.setItem(k, String(v)) } catch (_) {}
-  }
-
   const removeLocal = (k) => {
     try { localStorage.removeItem(k) } catch (_) {}
   }
 
-  const clearUsageInfo = () => {
+  const clearLegacyUsageInfo = () => {
     removeLocal('cnc_device_uuid')
     removeLocal('cnc_trial_used')
     removeLocal('cnc_trial_expires_at')
@@ -110,88 +94,14 @@ function App() {
     removeLocal('cnc_install_id')
   }
 
-  const ensureDeviceUuid = () => {
-    const k = 'cnc_device_uuid'
-    const exist = (getLocal(k, '') || '').trim()
-    if (exist) return exist
-    const next = (globalThis.crypto?.randomUUID?.() || '').trim() || `uuid-${Date.now()}-${Math.random()}`
-    setLocal(k, next)
-    return next
-  }
-
-  const b64urlToBytes = (s) => {
-    const t = String(s || '').trim().replace(/-/g, '+').replace(/_/g, '/')
-    const pad = t.length % 4 === 0 ? '' : '='.repeat(4 - (t.length % 4))
-    const bin = atob(t + pad)
-    const out = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
-    return out
-  }
-
-  const sha256Hex = async (text) => {
-    const enc = new TextEncoder().encode(String(text || ''))
-    const hash = await globalThis.crypto.subtle.digest('SHA-256', enc)
-    const bytes = new Uint8Array(hash)
-    let hex = ''
-    for (let i = 0; i < bytes.length; i += 1) hex += bytes[i].toString(16).padStart(2, '0')
-    return hex
-  }
-
-  const normalizeUuidForLicense = async (uuidStr) => {
-    const s = String(uuidStr || '').trim()
-    if (!s) throw new Error('UUID 不能为空')
-    const hexonly = s.replace(/[^a-fA-F0-9]/g, '')
-    if (hexonly.length >= 24) return hexonly.slice(0, 24).toLowerCase()
-    const seed = await sha256Hex(s)
-    return seed.slice(0, 24)
-  }
-
-  const decodeUtf8 = (bytes) => {
-    try { return new TextDecoder('utf-8', { fatal: false }).decode(bytes) } catch (_) { return '' }
-  }
-
-  const parseLicense = (licenseStr) => {
-    const s = String(licenseStr || '').trim()
-    const parts = s.split('.')
-    if (parts.length !== 3) return { ok: false, error: '激活码格式不正确' }
-    const [pfx, payloadB64Url, sigB64Url] = parts
-    if (!pfx || !payloadB64Url || !sigB64Url) return { ok: false, error: '激活码格式不正确' }
-    return { ok: true, pfx, payloadB64Url, sigB64Url }
-  }
-
-  const verifyLicenseForDevice = async (licenseStr, uuidRaw) => {
-    const parsed = parseLicense(licenseStr)
-    if (!parsed.ok) return parsed
-    if (String(parsed.pfx).trim() !== ACTIVATION_LICENSE_PREFIX) {
-      return { ok: false, error: `激活码前缀不匹配（期望 ${ACTIVATION_LICENSE_PREFIX}）` }
-    }
-    let msgBytes, sigBytes
-    try {
-      msgBytes = b64urlToBytes(parsed.payloadB64Url)
-      sigBytes = b64urlToBytes(parsed.sigB64Url)
-    } catch (_) { return { ok: false, error: '激活码内容无法解析' } }
-    const sigOk = nacl.sign.detached.verify(msgBytes, sigBytes, activationPublicKeyBytes)
-    if (!sigOk) return { ok: false, error: '激活码校验失败：签名不合法' }
-    const payloadRaw = decodeUtf8(msgBytes)
-    let payload
-    try { payload = JSON.parse(payloadRaw || '{}') } catch (_) { return { ok: false, error: '激活码 payload 不是有效 JSON' } }
-    if (!payload || typeof payload !== 'object') return { ok: false, error: '激活码 payload 格式错误' }
-    const deviceNorm = await normalizeUuidForLicense(uuidRaw)
-    const deviceInLic = String(payload.device || '')
-    const productInLic = String(payload.product || '')
-    const vInLic = Number(payload.v || 0)
-    if (vInLic !== 1) return { ok: false, error: '激活码版本不支持' }
-    if (productInLic !== ACTIVATION_PRODUCT_ID) return { ok: false, error: `激活码 product 不匹配` }
-    if (deviceInLic !== deviceNorm) return { ok: false, error: '激活码设备不匹配' }
-    return { ok: true }
-  }
-
   const refreshActivationStatus = async () => {
     if (refreshLockRef.current) return
     refreshLockRef.current = true
+    const snapshot = await cnc.getActivationSnapshot()
     const now = Date.now()
-    const used = getLocal('cnc_trial_used', '0') === '1'
-    const expiresAt = Number(getLocal('cnc_trial_expires_at', '0') || '0') || 0
+    const used = snapshot?.trialUsed === true
+    const expiresAt = Number(snapshot?.trialExpiresAt || 0) || 0
+    setDeviceUuid(String(snapshot?.deviceUuid || ''))
     setTrialUsed(used)
     if (expiresAt > now) {
       setActivationStatus('trial')
@@ -200,47 +110,30 @@ function App() {
       return
     }
     setTrialRemainingMs(0)
-    if (expiresAt > 0 && expiresAt <= now) {
-      removeLocal('cnc_trial_expires_at')
+    if (snapshot?.licenseValid === true) {
+      setActivationStatus('licensed')
+      refreshLockRef.current = false
+      return
     }
-    const savedLic = (getLocal('cnc_license', '') || '').trim()
-    if (savedLic) {
-      try {
-        const r = await verifyLicenseForDevice(savedLic, ensureDeviceUuid())
-        if (r.ok) { setActivationStatus('licensed'); refreshLockRef.current = false; return }
-        removeLocal('cnc_license')
-      } catch (_) {}
+    if (String(snapshot?.license || '').trim()) {
+      await cnc.clearLicense()
     }
     setActivationStatus('unactivated')
     refreshLockRef.current = false
   }
 
   useEffect(() => {
-    try {
-      const u = new URL(window.location.href)
-      if (u.searchParams.get('reset') === '1') {
-        clearUsageInfo()
-        u.searchParams.delete('reset')
-        window.location.replace(u.toString())
-        return
-      }
-    } catch (_) {}
-
     ;(async () => {
-      // Install ID using IPC instead of HTTP
       try {
-        if (cnc.getInstallId) {
-          const serverId = await cnc.getInstallId()
-          const localId = (getLocal('cnc_install_id', '') || '').trim()
-          if (serverId && serverId !== localId) {
-            clearUsageInfo()
-            setLocal('cnc_install_id', serverId)
-          }
-        }
+        await cnc.migrateLegacyActivation?.({
+          deviceUuid: (getLocal('cnc_device_uuid', '') || '').trim(),
+          trialUsed: getLocal('cnc_trial_used', '0') === '1',
+          trialExpiresAt: Number(getLocal('cnc_trial_expires_at', '0') || '0') || 0,
+          license: (getLocal('cnc_license', '') || '').trim(),
+        })
+        clearLegacyUsageInfo()
       } catch (_) {}
 
-      const u = ensureDeviceUuid()
-      setDeviceUuid(u)
       refreshActivationStatus()
     })()
   }, [])
@@ -633,9 +526,8 @@ function App() {
                     const code = String(activationCode || '').trim()
                     if (!code) { setActivationUiMessage('请输入激活码'); return }
                     try {
-                      const r = await verifyLicenseForDevice(code, deviceUuid || ensureDeviceUuid())
+                      const r = await cnc.saveLicense(code)
                       if (r.ok) {
-                        setLocal('cnc_license', code)
                         setActivationStatus('licensed')
                         setActivationUiMessage('激活成功')
                         setTimeout(() => setActivationUiMessage(''), 1500)
@@ -865,10 +757,9 @@ function App() {
                 <>
                   <button type="button" onClick={() => setIsUserAgreementOpen(false)}
                     className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">拒绝</button>
-                  <button type="button" onClick={() => {
+                  <button type="button" onClick={async () => {
                     const expiresAt = Date.now() + TRIAL_SECONDS * 1000
-                    setLocal('cnc_trial_used', '1')
-                    setLocal('cnc_trial_expires_at', String(expiresAt))
+                    await cnc.startTrial(expiresAt)
                     setActivationStatus('trial')
                     setIsUserAgreementOpen(false)
                   }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">我同意</button>

@@ -199,10 +199,12 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
 
     CFStringRef cfStr = CFStringCreateWithCString(
         kCFAllocatorDefault, text.c_str(), kCFStringEncodingUTF8);
+    if (!cfStr) return Napi::Boolean::New(env, false);
     CGEventSourceRef source =
         CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
 
-    for (size_t i = 0; i < text.length(); i++) {
+    CFIndex length = CFStringGetLength(cfStr);
+    for (CFIndex i = 0; i < length; i++) {
         UniChar ch = CFStringGetCharacterAtIndex(cfStr, i);
         CGEventRef down = CGEventCreateKeyboardEvent(source, 0, true);
         CGEventKeyboardSetUnicodeString(down, 1, &ch);
