@@ -3,6 +3,7 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
+const nacl = require('tweetnacl');
 
 // ── Native addon (platform-specific) ──
 const core = process.platform === 'darwin'
@@ -12,8 +13,12 @@ const core = process.platform === 'darwin'
 // ── Paths ──
 const BACKEND_DIR = path.join(__dirname, 'backend');
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
-const INSTALL_ID_FILE = () => path.join(BACKEND_DIR, 'install.id');
+const INSTALL_ID_FILE = () => path.join(app.getPath('userData'), 'install.id');
+const ACTIVATION_STATE_FILE = () => path.join(app.getPath('userData'), 'activation-state.json');
 const INPUT_SOURCE_CONFIG_FILE = () => path.join(BACKEND_DIR, 'input_source_config.json');
+const ACTIVATION_PUBLIC_KEY_B64 = 'j5FyVLxHq1KZLNMrWYey+pfbq/wRSghcy7URZLmiYBU=';
+const ACTIVATION_PRODUCT_ID = 'campus-network-connector';
+const ACTIVATION_LICENSE_PREFIX = 'cs1';
 
 // ── App State ──
 let mainWindow = null;
@@ -99,18 +104,121 @@ function stopKeepalive() {
 
 // ── Install ID ──
 function getInstallId() {
-  try {
-    const fp = INSTALL_ID_FILE();
-    if (fs.existsSync(fp)) {
-      return fs.readFileSync(fp, 'utf-8').trim();
-    }
-    const id = crypto.randomUUID();
-    fs.mkdirSync(BACKEND_DIR, { recursive: true });
-    fs.writeFileSync(fp, id + '\n', 'utf-8');
-    return id;
-  } catch (_) {
-    return crypto.randomUUID();
+  const fp = INSTALL_ID_FILE();
+  if (fs.existsSync(fp)) {
+    const existing = fs.readFileSync(fp, 'utf-8').trim();
+    if (existing) return existing;
   }
+  const id = crypto.randomUUID();
+  fs.mkdirSync(path.dirname(fp), { recursive: true });
+  fs.writeFileSync(fp, id + '\n', 'utf-8');
+  return id;
+}
+
+function readActivationState() {
+  try {
+    const fp = ACTIVATION_STATE_FILE();
+    if (!fs.existsSync(fp)) return {};
+    const raw = fs.readFileSync(fp, 'utf-8');
+    const data = JSON.parse(raw || '{}');
+    return data && typeof data === 'object' ? data : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeActivationState(nextState) {
+  const fp = ACTIVATION_STATE_FILE();
+  fs.mkdirSync(path.dirname(fp), { recursive: true });
+  fs.writeFileSync(fp, JSON.stringify(nextState, null, 2), 'utf-8');
+}
+
+function getActivationSnapshot() {
+  const state = readActivationState();
+  let dirty = false;
+  if (!state.deviceUuid) {
+    state.deviceUuid = crypto.randomUUID();
+    dirty = true;
+  }
+  if (!state.installId) {
+    state.installId = getInstallId();
+    dirty = true;
+  }
+  if (dirty) writeActivationState(state);
+  const snapshot = {
+    installId: String(state.installId || ''),
+    deviceUuid: String(state.deviceUuid || ''),
+    trialUsed: state.trialUsed === true,
+    trialExpiresAt: Number(state.trialExpiresAt || 0) || 0,
+    license: String(state.license || ''),
+  };
+  snapshot.licenseValid = snapshot.license
+    ? verifyLicenseForDevice(snapshot.license, snapshot.deviceUuid).ok
+    : false;
+  return snapshot;
+}
+
+function updateActivationState(patch) {
+  const snapshot = getActivationSnapshot();
+  const current = {
+    installId: snapshot.installId,
+    deviceUuid: snapshot.deviceUuid,
+    trialUsed: snapshot.trialUsed,
+    trialExpiresAt: snapshot.trialExpiresAt,
+    license: snapshot.license,
+  };
+  const next = { ...current, ...patch };
+  writeActivationState(next);
+  return getActivationSnapshot();
+}
+
+function b64urlToBuffer(value) {
+  const normalized = String(value || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+  const pad = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
+  return Buffer.from(normalized + pad, 'base64');
+}
+
+function normalizeUuidForLicense(uuid) {
+  const raw = String(uuid || '').trim();
+  if (!raw) throw new Error('UUID 不能为空');
+  const hexOnly = raw.replace(/[^a-fA-F0-9]/g, '');
+  if (hexOnly.length >= 24) return hexOnly.slice(0, 24).toLowerCase();
+  return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 24);
+}
+
+function verifyLicenseForDevice(license, deviceUuid) {
+  const parts = String(license || '').trim().split('.');
+  if (parts.length !== 3) return { ok: false, error: '激活码格式不正确' };
+  const [prefix, payloadB64Url, sigB64Url] = parts;
+  if (prefix !== ACTIVATION_LICENSE_PREFIX) {
+    return { ok: false, error: `激活码前缀不匹配（期望 ${ACTIVATION_LICENSE_PREFIX}）` };
+  }
+  let payloadBytes;
+  let sigBytes;
+  try {
+    payloadBytes = b64urlToBuffer(payloadB64Url);
+    sigBytes = b64urlToBuffer(sigB64Url);
+  } catch (_) {
+    return { ok: false, error: '激活码内容无法解析' };
+  }
+  const publicKey = Buffer.from(ACTIVATION_PUBLIC_KEY_B64, 'base64');
+  if (!nacl.sign.detached.verify(payloadBytes, sigBytes, publicKey)) {
+    return { ok: false, error: '激活码校验失败：签名不合法' };
+  }
+  let payload;
+  try {
+    payload = JSON.parse(payloadBytes.toString('utf-8') || '{}');
+  } catch (_) {
+    return { ok: false, error: '激活码 payload 不是有效 JSON' };
+  }
+  if (Number(payload?.v || 0) !== 1) return { ok: false, error: '激活码版本不支持' };
+  if (String(payload?.product || '') !== ACTIVATION_PRODUCT_ID) {
+    return { ok: false, error: '激活码 product 不匹配' };
+  }
+  if (String(payload?.device || '') !== normalizeUuidForLicense(deviceUuid)) {
+    return { ok: false, error: '激活码设备不匹配' };
+  }
+  return { ok: true };
 }
 
 // ── Input Source Config ──
@@ -230,8 +338,41 @@ ipcMain.on('keepalive:setEnabled', (_e, enabled) => {
   saveSettings();
 });
 
-// Install ID
-ipcMain.handle('getInstallId', async () => getInstallId());
+// Activation
+ipcMain.handle('activation:getSnapshot', async () => getActivationSnapshot());
+ipcMain.handle('activation:startTrial', async (_e, expiresAt) => {
+  const nextExpiry = Number(expiresAt || 0) || 0;
+  if (nextExpiry <= Date.now()) {
+    throw new Error('试用过期时间无效');
+  }
+  const current = getActivationSnapshot();
+  if (current.trialUsed) return current;
+  return updateActivationState({
+    trialUsed: true,
+    trialExpiresAt: nextExpiry,
+  });
+});
+ipcMain.handle('activation:saveLicense', async (_e, license) => {
+  const current = getActivationSnapshot();
+  const result = verifyLicenseForDevice(license, current.deviceUuid);
+  if (!result.ok) return result;
+  updateActivationState({ license: String(license || '') });
+  return { ok: true };
+});
+ipcMain.handle('activation:clearLicense', async () => {
+  return updateActivationState({ license: '' });
+});
+ipcMain.handle('activation:migrateLegacy', async (_e, legacy) => {
+  const current = getActivationSnapshot();
+  if (current.trialUsed || current.trialExpiresAt || current.license) return current;
+  const data = legacy && typeof legacy === 'object' ? legacy : {};
+  return updateActivationState({
+    deviceUuid: String(data.deviceUuid || current.deviceUuid),
+    trialUsed: data.trialUsed === true,
+    trialExpiresAt: Number(data.trialExpiresAt || 0) || 0,
+    license: String(data.license || ''),
+  });
+});
 
 // Mouse click
 ipcMain.handle('native:mouseClick', async (_e, x, y) => {
