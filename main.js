@@ -1,8 +1,9 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, clipboard } = require('electron');
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, clipboard, safeStorage } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 const nacl = require('tweetnacl');
 
 // ── Native CoreGraphics addon ──
@@ -15,10 +16,15 @@ const RECORDINGS_DIR = () => path.join(DATA_DIR(), 'recordings');
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 const INSTALL_ID_FILE = () => path.join(app.getPath('userData'), 'install.id');
 const ACTIVATION_STATE_FILE = () => path.join(app.getPath('userData'), 'activation-state.json');
+const PRIMARY_LICENSE_FILE = () => path.join(app.getPath('userData'), '.license-store');
+const MIRROR_LICENSE_DIR = () => path.join(app.getPath('appData'), '.cnc-license');
+const MIRROR_LICENSE_FILE = () => path.join(MIRROR_LICENSE_DIR(), '.state');
 const INPUT_SOURCE_CONFIG_FILE = () => path.join(DATA_DIR(), 'input_source_config.json');
 const ACTIVATION_PUBLIC_KEY_B64 = 'j5FyVLxHq1KZLNMrWYey+pfbq/wRSghcy7URZLmiYBU=';
 const ACTIVATION_PRODUCT_ID = 'campus-network-connector';
 const ACTIVATION_LICENSE_PREFIX = 'cs1';
+const ACTIVATION_STATE_SALT = 'campus-network-connector/offline-state/v2';
+const CLOCK_ROLLBACK_TOLERANCE_MS = 5 * 60 * 1000;
 
 // ── App State ──
 let mainWindow = null;
@@ -115,7 +121,7 @@ function getInstallId() {
   return id;
 }
 
-function readActivationState() {
+function readLegacyActivationState() {
   try {
     const fp = ACTIVATION_STATE_FILE();
     if (!fs.existsSync(fp)) return {};
@@ -127,14 +133,132 @@ function readActivationState() {
   }
 }
 
+function getMachineFingerprint() {
+  try {
+    if (process.platform === 'darwin') {
+      const out = execFileSync('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf-8' });
+      const match = out.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/);
+      if (match?.[1]) return `darwin:${match[1]}`;
+    } else if (process.platform === 'win32') {
+      const out = execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'], { encoding: 'utf-8' });
+      const match = out.match(/MachineGuid\s+REG_SZ\s+([^\r\n]+)/i);
+      if (match?.[1]) return `win32:${match[1].trim()}`;
+    }
+  } catch (_) {}
+  return `fallback:${getInstallId()}`;
+}
+
+function getMachineHash() {
+  return crypto.createHash('sha256').update(getMachineFingerprint()).digest('hex');
+}
+
+function getStateSigningKey(machineHash) {
+  return crypto.createHash('sha256').update(`${ACTIVATION_STATE_SALT}:${machineHash}`).digest();
+}
+
+function normalizeActivationState(raw = {}) {
+  return {
+    installId: String(raw.installId || ''),
+    deviceUuid: String(raw.deviceUuid || ''),
+    machineHash: String(raw.machineHash || ''),
+    trialUsed: raw.trialUsed === true,
+    trialExpiresAt: Number(raw.trialExpiresAt || 0) || 0,
+    license: String(raw.license || ''),
+    firstSeenAt: Number(raw.firstSeenAt || 0) || 0,
+    lastSeenAt: Number(raw.lastSeenAt || 0) || 0,
+  };
+}
+
+function sealActivationState(state) {
+  const normalized = normalizeActivationState(state);
+  const payload = Buffer.from(JSON.stringify(normalized), 'utf-8');
+  const mac = crypto.createHmac('sha256', getStateSigningKey(normalized.machineHash))
+    .update(payload)
+    .digest('hex');
+  const envelope = Buffer.from(JSON.stringify({
+    v: 2,
+    payload: payload.toString('base64'),
+    mac,
+  }), 'utf-8');
+  return safeStorage.isEncryptionAvailable()
+    ? safeStorage.encryptString(envelope.toString('utf-8'))
+    : envelope;
+}
+
+function unsealActivationState(buffer) {
+  try {
+    const envelopeRaw = safeStorage.isEncryptionAvailable()
+      ? safeStorage.decryptString(buffer)
+      : buffer.toString('utf-8');
+    const envelope = JSON.parse(envelopeRaw || '{}');
+    if (Number(envelope.v || 0) !== 2) return null;
+    const payload = Buffer.from(String(envelope.payload || ''), 'base64');
+    const state = normalizeActivationState(JSON.parse(payload.toString('utf-8') || '{}'));
+    if (!state.machineHash) return null;
+    const expectedMac = crypto.createHmac('sha256', getStateSigningKey(state.machineHash))
+      .update(payload)
+      .digest('hex');
+    if (expectedMac !== String(envelope.mac || '')) return null;
+    return state;
+  } catch (_) {
+    return null;
+  }
+}
+
+function readSealedStateFile(fp) {
+  try {
+    if (!fs.existsSync(fp)) return null;
+    return unsealActivationState(fs.readFileSync(fp));
+  } catch (_) {
+    return null;
+  }
+}
+
+function chooseMostRestrictiveState(states) {
+  const valid = states.filter(Boolean);
+  if (!valid.length) return null;
+  return valid.reduce((best, next) => {
+    if (!best) return next;
+    const seenValues = [best.firstSeenAt, next.firstSeenAt].filter(Boolean);
+    return {
+      ...next,
+      installId: best.installId || next.installId,
+      deviceUuid: best.deviceUuid || next.deviceUuid,
+      machineHash: best.machineHash || next.machineHash,
+      trialUsed: best.trialUsed || next.trialUsed,
+      trialExpiresAt: Math.max(best.trialExpiresAt || 0, next.trialExpiresAt || 0),
+      license: best.license || next.license,
+      firstSeenAt: seenValues.length ? Math.min(...seenValues) : 0,
+      lastSeenAt: Math.max(best.lastSeenAt || 0, next.lastSeenAt || 0),
+    };
+  }, null);
+}
+
+function readActivationState() {
+  const sealed = chooseMostRestrictiveState([
+    readSealedStateFile(PRIMARY_LICENSE_FILE()),
+    readSealedStateFile(MIRROR_LICENSE_FILE()),
+  ]);
+  if (sealed) return sealed;
+  return normalizeActivationState(readLegacyActivationState());
+}
+
 function writeActivationState(nextState) {
-  const fp = ACTIVATION_STATE_FILE();
-  fs.mkdirSync(path.dirname(fp), { recursive: true });
-  fs.writeFileSync(fp, JSON.stringify(nextState, null, 2), 'utf-8');
+  const normalized = normalizeActivationState(nextState);
+  const sealed = sealActivationState(normalized);
+  fs.mkdirSync(path.dirname(PRIMARY_LICENSE_FILE()), { recursive: true });
+  fs.mkdirSync(MIRROR_LICENSE_DIR(), { recursive: true });
+  fs.writeFileSync(PRIMARY_LICENSE_FILE(), sealed);
+  fs.writeFileSync(MIRROR_LICENSE_FILE(), sealed);
+  try {
+    if (fs.existsSync(ACTIVATION_STATE_FILE())) fs.unlinkSync(ACTIVATION_STATE_FILE());
+  } catch (_) {}
 }
 
 function getActivationSnapshot() {
   const state = readActivationState();
+  const now = Date.now();
+  const machineHash = getMachineHash();
   let dirty = false;
   if (!state.deviceUuid) {
     state.deviceUuid = crypto.randomUUID();
@@ -144,13 +268,40 @@ function getActivationSnapshot() {
     state.installId = getInstallId();
     dirty = true;
   }
+  if (!state.machineHash) {
+    state.machineHash = machineHash;
+    dirty = true;
+  }
+  if (!state.firstSeenAt) {
+    state.firstSeenAt = now;
+    dirty = true;
+  }
+  const clockRollbackDetected = state.lastSeenAt > 0 && now + CLOCK_ROLLBACK_TOLERANCE_MS < state.lastSeenAt;
+  if (clockRollbackDetected && !state.trialUsed) {
+    state.trialUsed = true;
+    state.trialExpiresAt = 0;
+    dirty = true;
+  }
+  if (state.machineHash !== machineHash) {
+    state.trialUsed = true;
+    state.trialExpiresAt = 0;
+    dirty = true;
+  }
+  if (now > (state.lastSeenAt || 0)) {
+    state.lastSeenAt = now;
+    dirty = true;
+  }
   if (dirty) writeActivationState(state);
   const snapshot = {
     installId: String(state.installId || ''),
     deviceUuid: String(state.deviceUuid || ''),
+    machineHash: String(state.machineHash || ''),
     trialUsed: state.trialUsed === true,
     trialExpiresAt: Number(state.trialExpiresAt || 0) || 0,
     license: String(state.license || ''),
+    firstSeenAt: Number(state.firstSeenAt || 0) || 0,
+    lastSeenAt: Number(state.lastSeenAt || 0) || 0,
+    clockRollbackDetected,
   };
   snapshot.licenseValid = snapshot.license
     ? verifyLicenseForDevice(snapshot.license, snapshot.deviceUuid).ok
@@ -166,6 +317,9 @@ function updateActivationState(patch) {
     trialUsed: snapshot.trialUsed,
     trialExpiresAt: snapshot.trialExpiresAt,
     license: snapshot.license,
+    machineHash: snapshot.machineHash,
+    firstSeenAt: snapshot.firstSeenAt,
+    lastSeenAt: snapshot.lastSeenAt,
   };
   const next = { ...current, ...patch };
   writeActivationState(next);
