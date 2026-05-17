@@ -13,6 +13,7 @@ const mac = require('./mac-coregraphics');
 const LEGACY_BACKEND_DIR = path.join(__dirname, 'backend');
 const DATA_DIR = () => path.join(app.getPath('userData'), 'data');
 const RECORDINGS_DIR = () => path.join(DATA_DIR(), 'recordings');
+const LEGACY_MIGRATION_MARKER_FILE = () => path.join(DATA_DIR(), '.legacy-migration-complete');
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 const INSTALL_ID_FILE = () => path.join(app.getPath('userData'), 'install.id');
 const ACTIVATION_STATE_FILE = () => path.join(app.getPath('userData'), 'activation-state.json');
@@ -396,6 +397,7 @@ function writeInputSourceConfig(config) {
 function migrateLegacyDataFiles() {
   try {
     fs.mkdirSync(RECORDINGS_DIR(), { recursive: true });
+    if (fs.existsSync(LEGACY_MIGRATION_MARKER_FILE())) return;
     if (!fs.existsSync(LEGACY_BACKEND_DIR)) return;
 
     for (const name of fs.readdirSync(LEGACY_BACKEND_DIR)) {
@@ -411,6 +413,8 @@ function migrateLegacyDataFiles() {
       const dest = path.join(RECORDINGS_DIR(), name);
       if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
     }
+    fs.mkdirSync(DATA_DIR(), { recursive: true });
+    fs.writeFileSync(LEGACY_MIGRATION_MARKER_FILE(), new Date().toISOString(), 'utf-8');
   } catch (e) {
     console.error('[data] migration failed:', e);
   }
