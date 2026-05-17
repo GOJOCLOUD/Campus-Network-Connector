@@ -433,6 +433,17 @@ function listClickFiles() {
   } catch (_) { return []; }
 }
 
+function getNextRecordingFileName() {
+  const nums = listClickFiles()
+    .map(({ name }) => {
+      const match = String(name || '').match(/^点击_?(\d+)\.json$/);
+      return match ? Number(match[1]) : 0;
+    })
+    .filter(n => Number.isFinite(n) && n > 0);
+  const next = (nums.length ? Math.max(...nums) : 0) + 1;
+  return `点击${next}.json`;
+}
+
 // ── Playback / Input — helper: spawn worker via subprocess ──
 // We run clicks/text injection in the main process synchronously so there
 // is no subprocess/Accessibility-permission-split issue.
@@ -656,7 +667,7 @@ ipcMain.handle('file:saveFile', async (_e, clicks, filename) => {
     fs.mkdirSync(RECORDINGS_DIR(), { recursive: true });
     let name = filename;
     if (!name || !name.endsWith('.json')) {
-      name = `点击_${Date.now()}.json`;
+      name = getNextRecordingFileName();
     }
     const data = {
       start_time: new Date().toISOString(),
