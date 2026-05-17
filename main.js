@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, clipboard, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, clipboard } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -20,7 +20,6 @@ const ACTIVATION_STATE_FILE = () => path.join(app.getPath('userData'), 'activati
 const PRIMARY_LICENSE_FILE = () => path.join(app.getPath('userData'), '.license-store');
 const MIRROR_LICENSE_DIR = () => path.join(app.getPath('appData'), '.cnc-license');
 const MIRROR_LICENSE_FILE = () => path.join(MIRROR_LICENSE_DIR(), '.state');
-const MIRROR_PLAIN_FILE = () => path.join(MIRROR_LICENSE_DIR(), '.state.plain');
 const INPUT_SOURCE_CONFIG_FILE = () => path.join(DATA_DIR(), 'input_source_config.json');
 const ACTIVATION_PUBLIC_KEY_B64 = 'j5FyVLxHq1KZLNMrWYey+pfbq/wRSghcy7URZLmiYBU=';
 const ACTIVATION_PRODUCT_ID = 'campus-network-connector';
@@ -178,22 +177,16 @@ function sealActivationState(state) {
   const mac = crypto.createHmac('sha256', getStateSigningKey(normalized.machineHash))
     .update(payload)
     .digest('hex');
-  const envelope = Buffer.from(JSON.stringify({
+  return Buffer.from(JSON.stringify({
     v: 2,
     payload: payload.toString('base64'),
     mac,
   }), 'utf-8');
-  return safeStorage.isEncryptionAvailable()
-    ? safeStorage.encryptString(envelope.toString('utf-8'))
-    : envelope;
 }
 
 function unsealActivationState(buffer) {
   try {
-    const envelopeRaw = safeStorage.isEncryptionAvailable()
-      ? safeStorage.decryptString(buffer)
-      : buffer.toString('utf-8');
-    const envelope = JSON.parse(envelopeRaw || '{}');
+    const envelope = JSON.parse(buffer.toString('utf-8') || '{}');
     if (Number(envelope.v || 0) !== 2) return null;
     const payload = Buffer.from(String(envelope.payload || ''), 'base64');
     const state = normalizeActivationState(JSON.parse(payload.toString('utf-8') || '{}'));
@@ -243,15 +236,6 @@ function readActivationState() {
     readSealedStateFile(MIRROR_LICENSE_FILE()),
   ]);
   if (sealed) return sealed;
-  // Fall back to plain-text mirror — survives reinstall even when
-  // safeStorage / HMAC keys drift (install.id regenerated, etc.)
-  try {
-    if (fs.existsSync(MIRROR_PLAIN_FILE())) {
-      const raw = fs.readFileSync(MIRROR_PLAIN_FILE(), 'utf-8');
-      const data = JSON.parse(raw || '{}');
-      if (data && typeof data === 'object') return normalizeActivationState(data);
-    }
-  } catch (_) {}
   return normalizeActivationState(readLegacyActivationState());
 }
 
@@ -262,10 +246,12 @@ function writeActivationState(nextState) {
   fs.mkdirSync(MIRROR_LICENSE_DIR(), { recursive: true });
   fs.writeFileSync(PRIMARY_LICENSE_FILE(), sealed);
   fs.writeFileSync(MIRROR_LICENSE_FILE(), sealed);
-  // Plain-text copy in mirror dir — survives reinstall if mirror dir persists
-  fs.writeFileSync(MIRROR_PLAIN_FILE(), JSON.stringify(normalized), 'utf-8');
   try {
     if (fs.existsSync(ACTIVATION_STATE_FILE())) fs.unlinkSync(ACTIVATION_STATE_FILE());
+  } catch (_) {}
+  try {
+    const plainMirror = path.join(MIRROR_LICENSE_DIR(), '.state.plain');
+    if (fs.existsSync(plainMirror)) fs.unlinkSync(plainMirror);
   } catch (_) {}
 }
 
