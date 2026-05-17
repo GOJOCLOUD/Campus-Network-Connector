@@ -1,49 +1,68 @@
 const { contextBridge, clipboard, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('cnc', {
-  quit() {
-    try { ipcRenderer.invoke('window:quit'); } catch (_) {}
+  // Clipboard
+  clipboardReadText() { try { return clipboard.readText() || ''; } catch (_) { return ''; } },
+
+  // Window
+  quit() { ipcRenderer.invoke('window:quit').catch(() => {}); },
+  minimize() { ipcRenderer.invoke('window:minimize').catch(() => {}); },
+  maximize() { ipcRenderer.invoke('window:maximize').catch(() => {}); },
+
+  // Install ID
+  getInstallId() { return ipcRenderer.invoke('getInstallId'); },
+
+  // Mouse
+  mouseClick(x, y) { return ipcRenderer.invoke('native:mouseClick', x, y); },
+  mouseGetPosition() { return ipcRenderer.invoke('native:mouseGetPosition'); },
+
+  // Keyboard
+  sendText(text) { return ipcRenderer.invoke('native:sendText', text); },
+  sendKey(keyCode, flags) { return ipcRenderer.invoke('native:sendKey', keyCode, flags); },
+
+  // Input source
+  getInputSource() { return ipcRenderer.invoke('native:getCurrentInputSource'); },
+  selectInputSource(sourceId) { return ipcRenderer.invoke('native:selectInputSource', sourceId); },
+  getInputSourceConfig() { return ipcRenderer.invoke('native:getInputSourceConfig'); },
+  saveInputSourceConfig(config) { return ipcRenderer.invoke('native:saveInputSourceConfig', config); },
+  setCurrentAsInputSource(role) { return ipcRenderer.invoke('native:setCurrentAsInputSource', role); },
+
+  // Recording
+  startRecording(excludeRect) { return ipcRenderer.invoke('native:startRecording', excludeRect); },
+  stopRecording() { return ipcRenderer.invoke('native:stopRecording'); },
+  getRecordingClicks() { return ipcRenderer.invoke('native:getRecordingClicks'); },
+  clearRecordingClicks() { return ipcRenderer.invoke('native:clearRecordingClicks'); },
+  isRecording() { return ipcRenderer.invoke('native:isRecording'); },
+  tapFailed() { return ipcRenderer.invoke('native:tapFailed'); },
+
+  // File management
+  listFiles() { return ipcRenderer.invoke('file:listFiles'); },
+  saveFile(clicks, filename) { return ipcRenderer.invoke('file:saveFile', clicks, filename); },
+  renameFile(oldName, newName) { return ipcRenderer.invoke('file:renameFile', oldName, newName); },
+  deleteFile(filename) { return ipcRenderer.invoke('file:deleteFile', filename); },
+  readFile(filename) { return ipcRenderer.invoke('file:readFile', filename); },
+
+  // Playback
+  playFile(fileName, interval, inputText) {
+    return ipcRenderer.invoke('play:playFile', fileName, interval, inputText);
   },
-  minimize() {
-    try { ipcRenderer.invoke('window:minimize'); } catch (_) {}
+  playData(clicks, interval) {
+    return ipcRenderer.invoke('play:playData', clicks, interval);
   },
-  maximize() {
-    try { ipcRenderer.invoke('window:maximize'); } catch (_) {}
+  pinyinInput(text, delaySeconds, autoSwitchIme) {
+    return ipcRenderer.invoke('play:pinyinInput', text, delaySeconds, autoSwitchIme);
   },
-  clipboardReadText() {
-    try {
-      return clipboard.readText() || '';
-    } catch (_) {
-      return '';
-    }
-  },
+
+  // Settings
   settings: {
-    setSelectedJson(fileName) {
-      try {
-        ipcRenderer.send('settings:setSelectedJson', String(fileName || ''));
-      } catch (_) {}
-    },
-    getSelectedJson() {
-      try {
-        return ipcRenderer.invoke('settings:getSelectedJson');
-      } catch (_) {
-        return Promise.resolve('');
-      }
-    },
-    setPinyinText(text) {
-      try {
-        ipcRenderer.send('settings:setPinyinText', String(text || ''));
-      } catch (_) {}
-    },
-    setPinyinSources(sources) {
-      try {
-        ipcRenderer.send('settings:setPinyinSources', sources || {});
-      } catch (_) {}
-    },
-    setAutoSwitchIme(enabled) {
-      try {
-        ipcRenderer.send('settings:setAutoSwitchIme', !!enabled);
-      } catch (_) {}
-    },
+    setSelectedJson(fileName) { ipcRenderer.send('settings:setSelectedJson', String(fileName || '')); },
+    getSelectedJson() { return ipcRenderer.invoke('settings:getSelectedJson'); },
+    setPinyinText(text) { ipcRenderer.send('settings:setPinyinText', String(text || '')); },
+    setPinyinSources(sources) { ipcRenderer.send('settings:setPinyinSources', sources || {}); },
+    setAutoSwitchIme(enabled) { ipcRenderer.send('settings:setAutoSwitchIme', !!enabled); },
   },
+
+  // Keepalive
+  getKeepaliveStatus() { return ipcRenderer.invoke('keepalive:getStatus'); },
+  setKeepaliveEnabled(enabled) { ipcRenderer.send('keepalive:setEnabled', !!enabled); },
 });

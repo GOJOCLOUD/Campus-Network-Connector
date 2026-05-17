@@ -5,16 +5,15 @@
   "type": "commonjs",
   "main": "main.js",
   "scripts": {
+    "build:native": "clang++ -std=c++17 -fexceptions -ObjC++ -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I node_modules/node-addon-api -I /opt/homebrew/include/node -framework CoreGraphics -framework Carbon -framework Foundation -undefined dynamic_lookup -dynamiclib -o mac-coregraphics/build/Release/mac-coregraphics.node mac-coregraphics/src/main.mm",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "backend": "cd backend && uvicorn main:app --reload --port 51888",
     "electron": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "electron:build": "npm run build && env -u ELECTRON_RUN_AS_NODE electron .",
-    "bundle:python": "bash scripts/bundle-python-runtime.sh",
-    "dist:mac": "npm run bundle:python && npm run build && npx electron-builder --mac dir --publish never",
-    "dist:mac:arm64": "npm run bundle:python && npm run build && npx electron-builder --mac dmg --arm64 --publish never",
+    "electron:build": "npm run build && npm run build:native && env -u ELECTRON_RUN_AS_NODE electron .",
+    "dist:mac:arm64": "npm run build && npm run build:native && npx electron-builder --mac dmg --arm64 --publish never",
+    "dist:mac": "npm run build && npm run build:native && npx electron-builder --mac dir --publish never",
     "dist:win": "npm run build && npx electron-builder --win --publish never"
   },
   "dependencies": {
@@ -45,6 +44,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "node-addon-api": "^8.3.1",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.1",
     "vite": "^8.0.0"
@@ -54,18 +54,6 @@
     "productName": "Campus Network Connector",
     "icon": "build/app-icon.png",
     "asar": true,
-    "asarUnpack": [
-      "backend/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "python-runtime",
-        "to": "python-runtime",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
     "directories": {
       "output": "release"
     },
@@ -74,6 +62,8 @@
       "main.js",
       "preload.js",
       "backend/**/*",
+      "mac-coregraphics/**/*.node",
+      "mac-coregraphics/index.js",
       "package.json"
     ],
     "afterPack": "electron/after-pack.cjs",

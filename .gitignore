@@ -8,8 +8,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-# 构建时用脚本生成，内含完整 Python + pip 依赖，体积大不提交
 python-runtime
+mac-coregraphics/node_modules
+mac-coregraphics/build
 .cache
 release
 dist
@@ -35,3 +36,4 @@ license-issuer_副本/
 
 # 安装标记（自动生成）
 backend/install.id
+mac-coregraphics/package-lock.json
