@@ -9,11 +9,13 @@ const nacl = require('tweetnacl');
 const mac = require('./mac-coregraphics');
 
 // ── Paths ──
-const BACKEND_DIR = path.join(__dirname, 'backend');
+const LEGACY_BACKEND_DIR = path.join(__dirname, 'backend');
+const DATA_DIR = () => path.join(app.getPath('userData'), 'data');
+const RECORDINGS_DIR = () => path.join(DATA_DIR(), 'recordings');
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 const INSTALL_ID_FILE = () => path.join(app.getPath('userData'), 'install.id');
 const ACTIVATION_STATE_FILE = () => path.join(app.getPath('userData'), 'activation-state.json');
-const INPUT_SOURCE_CONFIG_FILE = () => path.join(BACKEND_DIR, 'input_source_config.json');
+const INPUT_SOURCE_CONFIG_FILE = () => path.join(DATA_DIR(), 'input_source_config.json');
 const ACTIVATION_PUBLIC_KEY_B64 = 'j5FyVLxHq1KZLNMrWYey+pfbq/wRSghcy7URZLmiYBU=';
 const ACTIVATION_PRODUCT_ID = 'campus-network-connector';
 const ACTIVATION_LICENSE_PREFIX = 'cs1';
@@ -231,17 +233,41 @@ function readInputSourceConfig() {
 
 function writeInputSourceConfig(config) {
   try {
-    fs.mkdirSync(BACKEND_DIR, { recursive: true });
+    fs.mkdirSync(DATA_DIR(), { recursive: true });
     fs.writeFileSync(INPUT_SOURCE_CONFIG_FILE(), JSON.stringify(config, null, 2), 'utf-8');
   } catch (_) {}
 }
 
 // ── File Management ──
+function migrateLegacyDataFiles() {
+  try {
+    fs.mkdirSync(RECORDINGS_DIR(), { recursive: true });
+    if (!fs.existsSync(LEGACY_BACKEND_DIR)) return;
+
+    for (const name of fs.readdirSync(LEGACY_BACKEND_DIR)) {
+      const src = path.join(LEGACY_BACKEND_DIR, name);
+      if (name === 'input_source_config.json') {
+        if (!fs.existsSync(INPUT_SOURCE_CONFIG_FILE())) {
+          fs.mkdirSync(DATA_DIR(), { recursive: true });
+          fs.copyFileSync(src, INPUT_SOURCE_CONFIG_FILE());
+        }
+        continue;
+      }
+      if (!name.endsWith('.json')) continue;
+      const dest = path.join(RECORDINGS_DIR(), name);
+      if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
+    }
+  } catch (e) {
+    console.error('[data] migration failed:', e);
+  }
+}
+
 function listClickFiles() {
   try {
-    if (!fs.existsSync(BACKEND_DIR)) return [];
-    return fs.readdirSync(BACKEND_DIR)
-      .filter(f => f.endsWith('.json') && f !== 'input_source_config.json')
+    migrateLegacyDataFiles();
+    if (!fs.existsSync(RECORDINGS_DIR())) return [];
+    return fs.readdirSync(RECORDINGS_DIR())
+      .filter(f => f.endsWith('.json'))
       .sort()
       .map((name, i) => ({ id: i + 1, name }));
   } catch (_) { return []; }
@@ -467,7 +493,7 @@ ipcMain.handle('file:listFiles', async () => {
 
 ipcMain.handle('file:saveFile', async (_e, clicks, filename) => {
   try {
-    fs.mkdirSync(BACKEND_DIR, { recursive: true });
+    fs.mkdirSync(RECORDINGS_DIR(), { recursive: true });
     let name = filename;
     if (!name || !name.endsWith('.json')) {
       name = `点击_${Date.now()}.json`;
@@ -477,7 +503,7 @@ ipcMain.handle('file:saveFile', async (_e, clicks, filename) => {
       click_count: clicks.length,
       clicks,
     };
-    fs.writeFileSync(path.join(BACKEND_DIR, name), JSON.stringify(data, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(RECORDINGS_DIR(), name), JSON.stringify(data, null, 2), 'utf-8');
     return { status: 'success', file: name };
   } catch (e) {
     return { status: 'error', message: e.message };
@@ -488,7 +514,7 @@ ipcMain.handle('file:renameFile', async (_e, oldName, newName) => {
   try {
     let nn = newName;
     if (!nn.endsWith('.json')) nn += '.json';
-    fs.renameSync(path.join(BACKEND_DIR, oldName), path.join(BACKEND_DIR, nn));
+    fs.renameSync(path.join(RECORDINGS_DIR(), oldName), path.join(RECORDINGS_DIR(), nn));
     return { status: 'success' };
   } catch (e) {
     return { status: 'error', message: e.message };
@@ -497,7 +523,7 @@ ipcMain.handle('file:renameFile', async (_e, oldName, newName) => {
 
 ipcMain.handle('file:deleteFile', async (_e, filename) => {
   try {
-    fs.unlinkSync(path.join(BACKEND_DIR, filename));
+    fs.unlinkSync(path.join(RECORDINGS_DIR(), filename));
     return { status: 'success' };
   } catch (e) {
     return { status: 'error', message: e.message };
@@ -506,7 +532,7 @@ ipcMain.handle('file:deleteFile', async (_e, filename) => {
 
 ipcMain.handle('file:readFile', async (_e, filename) => {
   try {
-    const data = fs.readFileSync(path.join(BACKEND_DIR, filename), 'utf-8');
+    const data = fs.readFileSync(path.join(RECORDINGS_DIR(), filename), 'utf-8');
     return JSON.parse(data);
   } catch (e) {
     return null;
@@ -516,7 +542,7 @@ ipcMain.handle('file:readFile', async (_e, filename) => {
 // Playback (runs asynchronously)
 ipcMain.handle('play:playFile', async (_e, fileName, interval, inputText) => {
   try {
-    const filePath = path.join(BACKEND_DIR, fileName);
+    const filePath = path.join(RECORDINGS_DIR(), fileName);
     if (!fs.existsSync(filePath)) return { status: 'error', message: '文件不存在' };
     const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     const clicks = data.clicks || [];
@@ -555,8 +581,8 @@ function createWindow() {
     height: 640,
     minWidth: 460,
     minHeight: 560,
-    frame: false,
-    transparent: true,
+    frame: true,
+    transparent: false,
     alwaysOnTop: true,
     show: false,
     webPreferences: {
@@ -589,7 +615,7 @@ async function triggerDefaultExecute() {
     fileName = [...files].sort((a, b) => (a.name < b.name ? 1 : -1))[0].name;
   }
 
-  const filePath = path.join(BACKEND_DIR, fileName);
+  const filePath = path.join(RECORDINGS_DIR(), fileName);
   if (!fs.existsSync(filePath)) return;
 
   try {
@@ -625,6 +651,7 @@ function registerShortcuts() {
 // ── App Lifecycle ──
 
 app.on('ready', () => {
+  migrateLegacyDataFiles();
   loadSettings();
   createWindow();
   registerShortcuts();

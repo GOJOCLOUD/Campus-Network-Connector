@@ -447,7 +447,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
-      <div className="drag-handle" aria-hidden="true" />
       <Stepper
         key={isActivated ? 'active' : 'inactive'}
         initialStep={isActivated ? 2 : 1}
