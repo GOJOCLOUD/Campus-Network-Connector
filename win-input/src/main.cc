@@ -209,24 +209,30 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
         return Napi::Boolean::New(env, false);
     }
 
-    // Exclude the trailing NUL terminator. Each UTF-16 code unit must be sent
-    // in order; this also preserves surrogate pairs for characters outside BMP.
+    // Build one ordered Unicode event batch for the full UTF-16 payload.
+    // Submitting the whole sequence at once prevents unrelated input from
+    // being interleaved between individual characters.
+    std::vector<INPUT> inputs;
+    inputs.reserve(static_cast<size_t>(wideLen - 1) * 2);
     for (int i = 0; i < wideLen - 1; i++) {
         wchar_t ch = wideText[i];
-        INPUT inputs[2] = {};
 
-        inputs[0].type = INPUT_KEYBOARD;
-        inputs[0].ki.wScan = static_cast<WORD>(ch);
-        inputs[0].ki.dwFlags = KEYEVENTF_UNICODE;
+        INPUT down = {};
+        down.type = INPUT_KEYBOARD;
+        down.ki.wScan = static_cast<WORD>(ch);
+        down.ki.dwFlags = KEYEVENTF_UNICODE;
+        inputs.push_back(down);
 
-        inputs[1].type = INPUT_KEYBOARD;
-        inputs[1].ki.wScan = static_cast<WORD>(ch);
-        inputs[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        INPUT up = {};
+        up.type = INPUT_KEYBOARD;
+        up.ki.wScan = static_cast<WORD>(ch);
+        up.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        inputs.push_back(up);
+    }
 
-        if (SendInput(2, inputs, sizeof(INPUT)) != 2) {
-            return Napi::Boolean::New(env, false);
-        }
-        Sleep(45);
+    if (inputs.empty()) return Napi::Boolean::New(env, false);
+    if (SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT)) != inputs.size()) {
+        return Napi::Boolean::New(env, false);
     }
 
     return Napi::Boolean::New(env, true);
