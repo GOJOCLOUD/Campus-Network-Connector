@@ -72,14 +72,14 @@
         "dir"
       ],
       "identity": null,
-      "artifactName": "${productName}-mac-${version}.${ext}"
+      "artifactName": "CampusNetworkConnector-mac-${version}.${ext}"
     },
     "win": {
       "icon": "build/win-icon.png",
       "target": [
         "nsis"
       ],
-      "artifactName": "${productName}-win-${version}.${ext}"
+      "artifactName": "CampusNetworkConnector-win-${version}.${ext}"
     }
   }
 }
