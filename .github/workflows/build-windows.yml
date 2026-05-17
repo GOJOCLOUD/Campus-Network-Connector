@@ -46,5 +46,6 @@ jobs:
           }
           $TAG = "win-${{ github.run_id }}"
           $TITLE = "Windows build ${{ github.run_id }} (${{ github.ref_name }})"
-          $NOTES = "自动构建产物（exe）。分支：`${{ github.ref_name }}`；提交：`${{ github.sha }}`。"
-          gh release create $TAG "$($EXE.FullName)" --title $TITLE --notes $NOTES --prerelease
+          $NOTES_FILE = [System.IO.Path]::GetTempFileName()
+          Set-Content -Path $NOTES_FILE -Value "Auto-built Windows exe. Branch: ${{ github.ref_name }}  Commit: ${{ github.sha }}" -Encoding UTF8
+          gh release create $TAG "$($EXE.FullName)" --title $TITLE --notes-file $NOTES_FILE --prerelease
