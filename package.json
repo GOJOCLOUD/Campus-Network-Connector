@@ -79,7 +79,7 @@
       "artifactName": "CampusNetworkConnector-mac-${version}.${ext}"
     },
     "win": {
-      "icon": "build/win-icon.png",
+      "icon": "build/win-icon.ico",
       "target": [
         "nsis"
       ],

@@ -204,10 +204,15 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
     int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, nullptr, 0);
     if (wideLen <= 0) return Napi::Boolean::New(env, false);
 
-    std::wstring wideText(wideLen - 1, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, &wideText[0], wideLen);
+    std::wstring wideText(wideLen, L'\0');
+    if (MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, &wideText[0], wideLen) <= 0) {
+        return Napi::Boolean::New(env, false);
+    }
 
-    for (wchar_t ch : wideText) {
+    // Exclude the trailing NUL terminator. Each UTF-16 code unit must be sent
+    // in order; this also preserves surrogate pairs for characters outside BMP.
+    for (int i = 0; i < wideLen - 1; i++) {
+        wchar_t ch = wideText[i];
         INPUT inputs[2] = {};
 
         inputs[0].type = INPUT_KEYBOARD;
@@ -218,8 +223,10 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
         inputs[1].ki.wScan = static_cast<WORD>(ch);
         inputs[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
 
-        SendInput(2, inputs, sizeof(INPUT));
-        Sleep(30);
+        if (SendInput(2, inputs, sizeof(INPUT)) != 2) {
+            return Napi::Boolean::New(env, false);
+        }
+        Sleep(45);
     }
 
     return Napi::Boolean::New(env, true);
