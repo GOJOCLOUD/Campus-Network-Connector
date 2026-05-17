@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - win
 
 jobs:
   build-win:
@@ -24,16 +24,8 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Bundle Python runtime
-        shell: powershell
-        run: |
-          scripts\bundle-python-runtime.ps1
-
-      - name: Build renderer
-        run: npm run build
-
-      - name: Build NSIS installer
-        run: npx electron-builder --win --publish never
+      - name: Build native addon + renderer + NSIS installer
+        run: npm run dist:win
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
@@ -41,3 +33,18 @@ jobs:
           name: Campus-Network-Connector-Win
           path: release/**/*.exe
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          $EXE = Get-ChildItem -Path release -Recurse -Filter *.exe | Select-Object -First 1
+          if (-not $EXE) {
+            Write-Error "No .exe found under release/"
+            exit 1
+          }
+          $TAG = "win-${{ github.run_id }}"
+          $TITLE = "Windows build ${{ github.run_id }} (${{ github.ref_name }})"
+          $NOTES = "自动构建产物（exe）。分支：`${{ github.ref_name }}`；提交：`${{ github.sha }}`。"
+          gh release create $TAG "$($EXE.FullName)" --title $TITLE --notes $NOTES --prerelease

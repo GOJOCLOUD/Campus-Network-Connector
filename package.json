@@ -14,7 +14,8 @@
     "electron:build": "npm run build && npm run build:native && env -u ELECTRON_RUN_AS_NODE electron .",
     "dist:mac:arm64": "npm run build && npm run build:native && npx electron-builder --mac dmg --arm64 --publish never",
     "dist:mac": "npm run build && npm run build:native && npx electron-builder --mac dir --publish never",
-    "dist:win": "npm run build && npx electron-builder --win --publish never"
+    "build:win-native": "node-gyp rebuild --directory=win-input",
+    "dist:win": "npm run build && npm run build:win-native && npx electron-builder --win --publish never"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
@@ -45,6 +46,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "node-addon-api": "^8.3.1",
+    "node-gyp": "^11.2.0",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.1",
     "vite": "^8.0.0"
@@ -64,6 +66,8 @@
       "backend/**/*",
       "mac-coregraphics/**/*.node",
       "mac-coregraphics/index.js",
+      "win-input/**/*.node",
+      "win-input/index.js",
       "package.json"
     ],
     "afterPack": "electron/after-pack.cjs",

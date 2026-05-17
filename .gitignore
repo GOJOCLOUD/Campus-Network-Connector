@@ -11,6 +11,7 @@ node_modules
 python-runtime
 mac-coregraphics/node_modules
 mac-coregraphics/build
+win-input/build
 .cache
 release
 dist

@@ -4,8 +4,10 @@ const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
 
-// ── Native CoreGraphics addon ──
-const mac = require('./mac-coregraphics');
+// ── Native addon (platform-specific) ──
+const core = process.platform === 'darwin'
+  ? require('./mac-coregraphics')
+  : require('./win-input');
 
 // ── Paths ──
 const BACKEND_DIR = path.join(__dirname, 'backend');
@@ -155,12 +157,12 @@ async function playClicks(clicks, interval, inputs) {
 
   for (let i = 0; i < clicks.length; i++) {
     const c = clicks[i];
-    mac.mouseClick(c.x, c.y);
+    core.mouseClick(c.x, c.y);
     await sleepMs(100);
 
     if (perClickInputs && perClickInputs[i]) {
       await sleepMs(100);
-      mac.sendText(perClickInputs[i]);
+      core.sendText(perClickInputs[i]);
     }
 
     if (i < clicks.length - 1) {
@@ -176,7 +178,7 @@ async function pinyinType(text, delaySeconds = 3, autoSwitchIme = false) {
     // Switch to ASCII input source if configured
     const config = readInputSourceConfig();
     if (config.ascii_id) {
-      mac.selectInputSource(config.ascii_id);
+      core.selectInputSource(config.ascii_id);
     }
     await sleepMs(300);
   }
@@ -185,7 +187,7 @@ async function pinyinType(text, delaySeconds = 3, autoSwitchIme = false) {
     await sleepMs(delaySeconds * 1000);
   }
 
-  mac.sendText(text);
+  core.sendText(text);
 }
 
 // ── IPC Handlers ──
@@ -233,31 +235,31 @@ ipcMain.handle('getInstallId', async () => getInstallId());
 
 // Mouse click
 ipcMain.handle('native:mouseClick', async (_e, x, y) => {
-  return mac.mouseClick(x, y);
+  return core.mouseClick(x, y);
 });
 
 // Mouse position
 ipcMain.handle('native:mouseGetPosition', async () => {
-  return mac.mouseGetPosition();
+  return core.mouseGetPosition();
 });
 
 // Send text
 ipcMain.handle('native:sendText', async (_e, text) => {
-  return mac.sendText(String(text || ''));
+  return core.sendText(String(text || ''));
 });
 
 // Send key
 ipcMain.handle('native:sendKey', async (_e, keyCode, flags) => {
-  return mac.sendKey(keyCode, flags || 0);
+  return core.sendKey(keyCode, flags || 0);
 });
 
 // Input source
 ipcMain.handle('native:getCurrentInputSource', async () => {
-  return mac.getCurrentInputSource();
+  return core.getCurrentInputSource();
 });
 
 ipcMain.handle('native:selectInputSource', async (_e, sourceId) => {
-  return mac.selectInputSource(String(sourceId || ''));
+  return core.selectInputSource(String(sourceId || ''));
 });
 
 // Input source config (saved in backend/input_source_config.json)
@@ -275,7 +277,7 @@ ipcMain.handle('native:saveInputSourceConfig', async (_e, config) => {
 });
 
 ipcMain.handle('native:setCurrentAsInputSource', async (_e, role) => {
-  const info = mac.getCurrentInputSource();
+  const info = core.getCurrentInputSource();
   if (!info.id) return { status: 'error', message: '无法读取当前输入源 ID' };
   const config = readInputSourceConfig();
   if (role === 'ascii') config.ascii_id = info.id;
@@ -288,7 +290,7 @@ ipcMain.handle('native:setCurrentAsInputSource', async (_e, role) => {
 // Recording
 ipcMain.handle('native:startRecording', async (_e, excludeRect) => {
   try {
-    mac.startRecording(excludeRect || [0, 0, 0, 0]);
+    core.startRecording(excludeRect || [0, 0, 0, 0]);
     return true;
   } catch (e) {
     return { error: e.message };
@@ -296,27 +298,27 @@ ipcMain.handle('native:startRecording', async (_e, excludeRect) => {
 });
 
 ipcMain.handle('native:stopRecording', async () => {
-  mac.stopRecording();
-  const clicks = mac.getRecordingClicks();
-  mac.clearRecordingClicks();
+  core.stopRecording();
+  const clicks = core.getRecordingClicks();
+  core.clearRecordingClicks();
   return Array.isArray(clicks) ? clicks : [];
 });
 
 ipcMain.handle('native:getRecordingClicks', async () => {
-  return mac.getRecordingClicks();
+  return core.getRecordingClicks();
 });
 
 ipcMain.handle('native:clearRecordingClicks', async () => {
-  mac.clearRecordingClicks();
+  core.clearRecordingClicks();
   return true;
 });
 
 ipcMain.handle('native:isRecording', async () => {
-  return mac.isRecording();
+  return core.isRecording();
 });
 
 ipcMain.handle('native:tapFailed', async () => {
-  return mac.tapFailed();
+  return core.tapFailed();
 });
 
 // File management
