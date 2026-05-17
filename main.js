@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, clipboard, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, clipboard, safeStorage, screen } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -626,7 +626,17 @@ ipcMain.handle('native:setCurrentAsInputSource', async (_e, role) => {
 // Recording
 ipcMain.handle('native:startRecording', async (_e, excludeRect) => {
   try {
-    core.startRecording(excludeRect || [0, 0, 0, 0]);
+    let rect = excludeRect || [0, 0, 0, 0];
+    if (process.platform === 'win32' && mainWindow) {
+      const bounds = mainWindow.getBounds();
+      const topLeft = screen.dipToScreenPoint({ x: bounds.x, y: bounds.y });
+      const bottomRight = screen.dipToScreenPoint({
+        x: bounds.x + bounds.width,
+        y: bounds.y + bounds.height,
+      });
+      rect = [topLeft.x, topLeft.y, bottomRight.x, bottomRight.y];
+    }
+    core.startRecording(rect);
     return true;
   } catch (e) {
     return { error: e.message };
