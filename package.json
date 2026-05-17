@@ -51,8 +51,7 @@
   },
   "build": {
     "appId": "com.gojocloud.campus-network-connector",
-    "productName": "Campus Network Connector",
-    "icon": "build/app-icon.png",
+    "productName": "模拟输入",
     "asar": true,
     "directories": {
       "output": "release"
@@ -68,6 +67,7 @@
     ],
     "afterPack": "electron/after-pack.cjs",
     "mac": {
+      "icon": "build/app-icon.png",
       "target": [
         "dir"
       ],
@@ -75,6 +75,7 @@
       "artifactName": "${productName}-mac-${version}.${ext}"
     },
     "win": {
+      "icon": "build/win-icon.png",
       "target": [
         "nsis"
       ],
