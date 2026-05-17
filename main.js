@@ -22,12 +22,14 @@ const ACTIVATION_STATE_FILE = () => path.join(app.getPath('userData'), 'activati
 const PRIMARY_LICENSE_FILE = () => path.join(app.getPath('userData'), '.license-store');
 const MIRROR_LICENSE_DIR = () => path.join(app.getPath('appData'), '.cnc-license');
 const MIRROR_LICENSE_FILE = () => path.join(MIRROR_LICENSE_DIR(), '.state');
+const MIRROR_PLAIN_FILE = () => path.join(MIRROR_LICENSE_DIR(), '.state.plain');
 const INPUT_SOURCE_CONFIG_FILE = () => path.join(DATA_DIR(), 'input_source_config.json');
 const ACTIVATION_PUBLIC_KEY_B64 = 'j5FyVLxHq1KZLNMrWYey+pfbq/wRSghcy7URZLmiYBU=';
 const ACTIVATION_PRODUCT_ID = 'campus-network-connector';
 const ACTIVATION_LICENSE_PREFIX = 'cs1';
 const ACTIVATION_STATE_SALT = 'campus-network-connector/offline-state/v2';
 const CLOCK_ROLLBACK_TOLERANCE_MS = 5 * 60 * 1000;
+const STATE_WRITE_INTERVAL_MS = 5 * 60 * 1000; // 每 5 分钟写一次盘，避免每秒刷写
 
 // ── App State ──
 let mainWindow = null;
@@ -243,6 +245,15 @@ function readActivationState() {
     readSealedStateFile(MIRROR_LICENSE_FILE()),
   ]);
   if (sealed) return sealed;
+  // Fall back to plain-text mirror — survives reinstall even when
+  // safeStorage / HMAC keys drift (install.id regenerated, etc.)
+  try {
+    if (fs.existsSync(MIRROR_PLAIN_FILE())) {
+      const raw = fs.readFileSync(MIRROR_PLAIN_FILE(), 'utf-8');
+      const data = JSON.parse(raw || '{}');
+      if (data && typeof data === 'object') return normalizeActivationState(data);
+    }
+  } catch (_) {}
   return normalizeActivationState(readLegacyActivationState());
 }
 
@@ -253,6 +264,8 @@ function writeActivationState(nextState) {
   fs.mkdirSync(MIRROR_LICENSE_DIR(), { recursive: true });
   fs.writeFileSync(PRIMARY_LICENSE_FILE(), sealed);
   fs.writeFileSync(MIRROR_LICENSE_FILE(), sealed);
+  // Plain-text copy in mirror dir — survives reinstall if mirror dir persists
+  fs.writeFileSync(MIRROR_PLAIN_FILE(), JSON.stringify(normalized), 'utf-8');
   try {
     if (fs.existsSync(ACTIVATION_STATE_FILE())) fs.unlinkSync(ACTIVATION_STATE_FILE());
   } catch (_) {}
@@ -290,7 +303,7 @@ function getActivationSnapshot() {
     state.trialExpiresAt = 0;
     dirty = true;
   }
-  if (now > (state.lastSeenAt || 0)) {
+  if (now - state.lastSeenAt >= STATE_WRITE_INTERVAL_MS) {
     state.lastSeenAt = now;
     dirty = true;
   }
