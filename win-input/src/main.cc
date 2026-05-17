@@ -195,82 +195,24 @@ Napi::Value TapFailed(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(info.Env(), g_hookFailed.load());
 }
 
-// ── Helpers for hybrid SendText ────────────────────────────────────────────
-
-// Characters that should be sent as real virtual-key events.
-static bool ShouldUseVkEvent(wchar_t ch) {
-    // ASCII printable range 0x20–0x7E, plus Tab/Enter/Backspace/Escape
-    if (ch >= 0x20 && ch <= 0x7E) return true;
-    return ch == L'\t' || ch == L'\n' || ch == L'\r' ||
-           ch == L'\b' || ch == 0x1B;
-}
-
-// Send one character via virtual-key events (ASCII / control characters).
-// Returns false only if SendInput unexpectedly fails.
-static bool SendCharViaVk(wchar_t ch) {
-    BYTE vk = 0;
-    BYTE shiftState = 0;
-
-    switch (ch) {
-        case L'\t':    vk = VK_TAB;    break;
-        case L'\n':
-        case L'\r':    vk = VK_RETURN; break;
-        case L'\b':    vk = VK_BACK;   break;
-        case 0x1B:     vk = VK_ESCAPE; break;
-        default: {
-            SHORT vkResult = VkKeyScanExW(ch, GetKeyboardLayout(0));
-            if (vkResult == -1) return false;      // not mappable → caller falls back to Unicode
-            vk = static_cast<BYTE>(vkResult & 0xFF);
-            if (vk == 0xFF) return false;           // dead-key / unmappable
-            shiftState = static_cast<BYTE>((vkResult >> 8) & 0xFF);
-            break;
-        }
-    }
-
-    // Modifier states to press (and later release) for this key
-    // VkKeyScanExW returns bits: 1=Shift, 2=Ctrl, 4=Alt, 6=AltGr(Ctrl+Alt)
-    struct { BYTE vk; bool press; } mods[4] = {
-        {VK_SHIFT,   !!(shiftState & 1)},
-        {VK_CONTROL, !!(shiftState & 2)},
-        {VK_MENU,    !!(shiftState & 4)},
-    };
-
-    auto sendKey = [](BYTE vkCode, bool up) {
-        INPUT input = {};
-        input.type = INPUT_KEYBOARD;
-        input.ki.wVk = vkCode;
-        input.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
-        SendInput(1, &input, sizeof(INPUT));
-    };
-
-    // Press modifiers
-    for (auto& m : mods) if (m.press) sendKey(m.vk, false);
-
-    // Key down + up
-    sendKey(vk, false);
-    Sleep(1);
-    sendKey(vk, true);
-
-    // Release modifiers (reverse order)
-    for (int i = 2; i >= 0; i--) if (mods[i].press) sendKey(mods[i].vk, true);
-
-    return true;
-}
-
-// Send one Unicode code-point via KEYEVENTF_UNICODE packets.
-// Handles surrogate pairs for characters outside the BMP.
-static void SendCharViaUnicode(wchar_t ch) {
-    auto sendUnicode = [](WORD code, bool up) {
-        INPUT input = {};
-        input.type = INPUT_KEYBOARD;
-        input.ki.wScan = code;
-        input.ki.dwFlags = KEYEVENTF_UNICODE | (up ? KEYEVENTF_KEYUP : 0);
-        SendInput(1, &input, sizeof(INPUT));
-    };
-    sendUnicode(static_cast<WORD>(ch), false);
-    Sleep(1);
-    sendUnicode(static_cast<WORD>(ch), true);
-}
+// ── SendText via WM_CHAR ────────────────────────────────────────────────────
+//
+// Rationale: all SendInput-based approaches (KEYEVENTF_UNICODE as well as
+// virtual-key events) go through the IME / TSF pipeline.  When a Chinese or
+// other CJK IME is active the IME intercepts every keystroke, which causes
+// stable, reproducible garbling — characters get consumed by the composition
+// buffer, punctuation gets doubled, letters go missing.
+//
+// WM_CHAR is a *post-IME* message — the character is already resolved.  By
+// posting WM_CHAR directly to the foreground window's focused HWND we bypass
+// the IME entirely and insert the literal character into the application's
+// input stream.  This is equivalent to what a real keyboard produces AFTER
+// TranslateMessage has run, but without the IME having a chance to interfere.
+//
+// The trade-off: WM_CHAR bypasses the key-state-tracking that real keystrokes
+// go through.  For "paste-protected" fields that check keydown events this
+// may not fool them, but it works in all the same places as SendInput while
+// being immune to IME-induced corruption.
 
 Napi::Value SendText(const Napi::CallbackInfo& info) {
     auto env = info.Env();
@@ -286,40 +228,48 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
         return Napi::Boolean::New(env, false);
     }
 
-    for (int i = 0; i < wideLen - 1; ) {
+    // ── Find the target HWND ────────────────────────────────────────────────
+    // The foreground window's focused child is the one that actually processes
+    // WM_CHAR.  GetFocus() returns our thread's focus; we need the foreground
+    // thread's focus, so we use GetGUIThreadInfo instead.
+    HWND targetHWND = nullptr;
+
+    HWND fg = GetForegroundWindow();
+    if (fg) {
+        DWORD fgTid = GetWindowThreadProcessId(fg, nullptr);
+        if (fgTid) {
+            GUITHREADINFO gti = { sizeof(GUITHREADINFO) };
+            if (GetGUIThreadInfo(fgTid, &gti)) {
+                // hwndCaret = the HWND that owns the caret (text-edit controls).
+                // hwndFocus = the HWND with keyboard focus.
+                targetHWND = gti.hwndCaret ? gti.hwndCaret : gti.hwndFocus;
+            }
+        }
+    }
+    if (!targetHWND) targetHWND = GetFocus();
+    if (!targetHWND) targetHWND = fg;
+    if (!targetHWND) return Napi::Boolean::New(env, false);
+
+    // ── Post WM_CHAR for each code unit ─────────────────────────────────────
+    for (int i = 0; i < wideLen - 1; i++) {
         wchar_t ch = wideText[i];
 
-        // Surrogate pair: must be sent as a pair of KEYEVENTF_UNICODE packets
+        // Surrogate pair  → send high then low (two WM_CHAR posts).
         if (ch >= 0xD800 && ch <= 0xDBFF && i + 1 < wideLen - 1) {
-            wchar_t low = wideText[i + 1];
-            auto sendSurrogate = [](WORD hi, WORD lo) {
-                INPUT pkt[2] = {};
-                pkt[0].type = INPUT_KEYBOARD;
-                pkt[0].ki.wScan = hi;
-                pkt[0].ki.dwFlags = KEYEVENTF_UNICODE;
-                pkt[1].type = INPUT_KEYBOARD;
-                pkt[1].ki.wScan = lo;
-                pkt[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-                // SendInput batches the pair — the OS consumes both before
-                // the next down matches with either.
-                SendInput(2, pkt, sizeof(INPUT));
-            };
-            sendSurrogate(static_cast<WORD>(ch), static_cast<WORD>(low));
-            i += 2;
-        } else if (ShouldUseVkEvent(ch)) {
-            if (!SendCharViaVk(ch)) {
-                // VK mapping failed (e.g. dead key, edge layout) — fall back
-                // to KEYEVENTF_UNICODE for just this character.
-                SendCharViaUnicode(ch);
-            }
+            if (!PostMessage(targetHWND, WM_CHAR, static_cast<WPARAM>(ch), 0))
+                break;
+            Sleep(2);
             i++;
+            ch = wideText[i];
+            if (!PostMessage(targetHWND, WM_CHAR, static_cast<WPARAM>(ch), 0))
+                break;
         } else {
-            SendCharViaUnicode(ch);
-            i++;
+            if (!PostMessage(targetHWND, WM_CHAR, static_cast<WPARAM>(ch), 0))
+                break;
         }
 
-        // Inter-character pause — 10ms is enough for the target to settle
-        // without feeling sluggish.
+        // 10 ms between characters — slow enough for the app to keep up,
+        // fast enough to not feel sluggish (~90 chars/sec).
         Sleep(10);
     }
 
