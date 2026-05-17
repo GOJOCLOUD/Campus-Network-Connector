@@ -209,11 +209,9 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
         return Napi::Boolean::New(env, false);
     }
 
-    // Build one ordered Unicode event batch for the full UTF-16 payload.
-    // Submitting the whole sequence at once prevents unrelated input from
-    // being interleaved between individual characters.
-    std::vector<INPUT> inputs;
-    inputs.reserve(static_cast<size_t>(wideLen - 1) * 2);
+    // Send each UTF-16 code unit as a real key press/release pair with a
+    // conservative cadence. Some Windows targets drop or reorder Unicode
+    // packets when down/up pairs arrive too densely.
     for (int i = 0; i < wideLen - 1; i++) {
         wchar_t ch = wideText[i];
 
@@ -221,18 +219,19 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
         down.type = INPUT_KEYBOARD;
         down.ki.wScan = static_cast<WORD>(ch);
         down.ki.dwFlags = KEYEVENTF_UNICODE;
-        inputs.push_back(down);
+        if (SendInput(1, &down, sizeof(INPUT)) != 1) {
+            return Napi::Boolean::New(env, false);
+        }
+        Sleep(8);
 
         INPUT up = {};
         up.type = INPUT_KEYBOARD;
         up.ki.wScan = static_cast<WORD>(ch);
         up.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-        inputs.push_back(up);
-    }
-
-    if (inputs.empty()) return Napi::Boolean::New(env, false);
-    if (SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT)) != inputs.size()) {
-        return Napi::Boolean::New(env, false);
+        if (SendInput(1, &up, sizeof(INPUT)) != 1) {
+            return Napi::Boolean::New(env, false);
+        }
+        Sleep(70);
     }
 
     return Napi::Boolean::New(env, true);
