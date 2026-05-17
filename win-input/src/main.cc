@@ -321,7 +321,7 @@ Napi::Value GetCurrentInputSource(const Napi::CallbackInfo& info) {
                     langID == LANG_ROMANIAN || langID == LANG_INDONESIAN ||
                     langID == LANG_VIETNAMESE || langID == LANG_TURKISH ||
                     langID == LANG_POLISH || langID == LANG_CZECH ||
-                    langID == LANG_HUNGARIAN || langID == LANG_LATIN);
+                    langID == LANG_HUNGARIAN);
     obj.Set("isASCII", isASCII);
 
     return obj;
