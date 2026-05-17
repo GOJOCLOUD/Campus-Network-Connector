@@ -557,8 +557,8 @@ function createWindow() {
     height: 640,
     minWidth: 460,
     minHeight: 560,
-    frame: false,
-    transparent: true,
+    frame: true,
+    transparent: false,
     alwaysOnTop: true,
     show: false,
     webPreferences: {
