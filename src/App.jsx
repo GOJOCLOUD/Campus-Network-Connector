@@ -157,7 +157,7 @@ function App() {
     }
     setPinyinCountdown(3)
     setMessage('')
-    cnc.pinyinInput(t, 3, true)
+    cnc.pinyinInput(t, 3, false)
       .then((data) => {
         if (data?.status === 'success') {
           setMessage(data.message || '已发起输入')

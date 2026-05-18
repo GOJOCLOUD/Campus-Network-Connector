@@ -195,67 +195,6 @@ Napi::Value TapFailed(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(info.Env(), g_hookFailed.load());
 }
 
-// ── Physical ASCII typing helpers ─────────────────────────────────────────
-
-static HKL GetForegroundKeyboardLayout() {
-    HWND fg = GetForegroundWindow();
-    DWORD fgTid = fg ? GetWindowThreadProcessId(fg, nullptr) : 0;
-    if (fgTid) {
-        HKL layout = GetKeyboardLayout(fgTid);
-        if (layout) return layout;
-    }
-    return GetKeyboardLayout(0);
-}
-
-static bool SendVkStroke(BYTE vk, BYTE shiftState = 0) {
-    INPUT batch[7] = {};
-    int idx = 0;
-
-    auto press = [&](BYTE code) {
-        batch[idx].type = INPUT_KEYBOARD;
-        batch[idx].ki.wVk = code;
-        idx++;
-    };
-    auto release = [&](BYTE code) {
-        batch[idx].type = INPUT_KEYBOARD;
-        batch[idx].ki.wVk = code;
-        batch[idx].ki.dwFlags = KEYEVENTF_KEYUP;
-        idx++;
-    };
-
-    if (shiftState & 1) press(VK_SHIFT);
-    if (shiftState & 2) press(VK_CONTROL);
-    if (shiftState & 4) press(VK_MENU);
-
-    press(vk);
-    release(vk);
-
-    if (shiftState & 4) release(VK_MENU);
-    if (shiftState & 2) release(VK_CONTROL);
-    if (shiftState & 1) release(VK_SHIFT);
-
-    return SendInput(static_cast<UINT>(idx), batch, sizeof(INPUT)) == static_cast<UINT>(idx);
-}
-
-static bool SendPhysicalAsciiChar(wchar_t ch, HKL layout) {
-    BYTE vk = 0;
-    BYTE shiftState = 0;
-
-    if (ch == L'\t')       vk = VK_TAB;
-    else if (ch == L'\n' || ch == L'\r') vk = VK_RETURN;
-    else if (ch == L'\b')  vk = VK_BACK;
-    else if (ch == 0x1B)   vk = VK_ESCAPE;
-    else {
-        SHORT mapped = VkKeyScanExW(ch, layout);
-        if (mapped == -1) return false;
-        vk = static_cast<BYTE>(mapped & 0xFF);
-        if (vk == 0xFF) return false;
-        shiftState = static_cast<BYTE>((static_cast<WORD>(mapped) >> 8) & 0xFF);
-    }
-
-    return SendVkStroke(vk, shiftState);
-}
-
 // ── SendText via SendInput (VK_PACKET / KEYEVENTF_UNICODE) ────────────────
 //
 // Every character is sent as KEYEVENTF_UNICODE (VK_PACKET), regardless of
@@ -315,33 +254,6 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
         i++;
 
         Sleep(8);
-    }
-
-    return Napi::Boolean::New(env, true);
-}
-
-// Sends only ASCII/control characters as real virtual-key strokes.  This is
-// intentionally separate from SendText: callers use it when they want the
-// target app to observe actual key activity instead of VK_PACKET text input.
-Napi::Value SendPhysicalText(const Napi::CallbackInfo& info) {
-    auto env = info.Env();
-    std::string utf8Text = info[0].As<Napi::String>().Utf8Value();
-    if (utf8Text.empty()) return Napi::Boolean::New(env, false);
-
-    int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, nullptr, 0);
-    if (wideLen <= 0) return Napi::Boolean::New(env, false);
-
-    std::wstring wideText(wideLen, L'\0');
-    if (MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, &wideText[0], wideLen) <= 0) {
-        return Napi::Boolean::New(env, false);
-    }
-
-    HKL layout = GetForegroundKeyboardLayout();
-    for (int i = 0; i < wideLen - 1; i++) {
-        wchar_t ch = wideText[i];
-        if (ch > 0x7F) return Napi::Boolean::New(env, false);
-        if (!SendPhysicalAsciiChar(ch, layout)) return Napi::Boolean::New(env, false);
-        Sleep(12);
     }
 
     return Napi::Boolean::New(env, true);
@@ -488,7 +400,6 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("isRecording",         Napi::Function::New(env, IsRecording));
     exports.Set("tapFailed",           Napi::Function::New(env, TapFailed));
     exports.Set("sendText",            Napi::Function::New(env, SendText));
-    exports.Set("sendPhysicalText",    Napi::Function::New(env, SendPhysicalText));
     exports.Set("sendKey",             Napi::Function::New(env, SendKey));
     exports.Set("getCurrentInputSource", Napi::Function::New(env, GetCurrentInputSource));
     exports.Set("selectInputSource",   Napi::Function::New(env, SelectInputSource));
