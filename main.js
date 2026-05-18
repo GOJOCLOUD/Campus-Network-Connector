@@ -452,6 +452,10 @@ function sleepMs(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+function sanitizeKeyboardInput(text = '') {
+  return String(text).replace(/[^\p{Script=Han}A-Za-z\s]/gu, '');
+}
+
 async function playClicks(clicks, interval, inputs) {
   const perClickInputs = Array.isArray(inputs)
     ? inputs.map(i => (i && String(i).trim()) ? String(i).trim() : null)
@@ -817,7 +821,8 @@ async function triggerDefaultExecute() {
 
 async function triggerPinyinFromClipboard() {
   const source = pinyinSourcesSetting?.shortcut === 'textbox' ? 'textbox' : 'clipboard';
-  const t = (source === 'textbox' ? pinyinTextSetting : clipboard.readText() || '').trim();
+  const raw = source === 'textbox' ? pinyinTextSetting : clipboard.readText() || '';
+  const t = sanitizeKeyboardInput(raw).trim();
   if (!t) return;
 
   await pinyinType(t, 0, !!autoSwitchImeSetting);
