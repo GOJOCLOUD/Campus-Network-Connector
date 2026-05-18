@@ -195,20 +195,22 @@ Napi::Value TapFailed(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(info.Env(), g_hookFailed.load());
 }
 
-// ── SendText via SendInput (batched down/up, foreground thread layout) ────
+// ── SendText via SendInput (VK_PACKET / KEYEVENTF_UNICODE) ────────────────
 //
-// Two delivery strategies, chosen per character:
+// Every character is sent as KEYEVENTF_UNICODE (VK_PACKET), regardless of
+// whether it is ASCII or CJK.  This completely bypasses the keyboard-layout
+// mapping (VkKeyScanExW) and the active IME's composition — each character
+// arrives at the target as its exact Unicode codepoint.
 //
-//   ASCII printable + Tab/Enter/Backspace  →  virtual-key events
-//     The VK code comes from VkKeyScanExW *using the foreground window's
-//     keyboard layout* so the mapping matches the target, not our thread.
+// Previously there was a split strategy: ASCII went through VkKeyScanExW +
+// SendInput with virtual-key codes, while non-ASCII used KEYEVENTF_UNICODE.
+// That caused "，不然 → ，，然" corruption when a Chinese IME was active,
+// because the IME intercepts VK keystrokes and applies its own punctuation
+// / composition logic.  The unified UNICODE path eliminates that entirely.
 //
-//   Non-ASCII (CJK, symbols, etc.)  →  KEYEVENTF_UNICODE
-//     These can't be expressed as a single VK + modifier on any layout.
-//
-// Each character's down+up pair is batched into ONE SendInput call so that
-// the OS processes them atomically — no Sleep needed between down and up.
-// An inter-character Sleep(10) keeps the pace readable without being slow.
+// Each character's down+up pair is batched into one SendInput call for
+// atomicity.  An inter-character Sleep(8) gives the target window time to
+// process each WM_CHAR before the next one arrives.
 
 Napi::Value SendText(const Napi::CallbackInfo& info) {
     auto env = info.Env();
@@ -224,16 +226,6 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
         return Napi::Boolean::New(env, false);
     }
 
-    // Get the foreground window's keyboard layout so VkKeyScanExW maps
-    // characters to the VK codes the target window actually understands.
-    HKL targetLayout = GetKeyboardLayout(0);                      // fallback
-    HWND fg = GetForegroundWindow();
-    DWORD fgTid = fg ? GetWindowThreadProcessId(fg, nullptr) : 0;
-    if (fgTid) {
-        HKL fgLayout = GetKeyboardLayout(fgTid);
-        if (fgLayout) targetLayout = fgLayout;
-    }
-
     for (int i = 0; i < wideLen - 1; ) {
         wchar_t ch = wideText[i];
 
@@ -241,80 +233,27 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
         if (ch >= 0xD800 && ch <= 0xDBFF && i + 1 < wideLen - 1) {
             wchar_t lo = wideText[i + 1];
             INPUT pkt[4] = {};
-            pkt[0].type = INPUT_KEYBOARD;  pkt[0].ki.wScan = static_cast<WORD>(ch);  pkt[0].ki.dwFlags = KEYEVENTF_UNICODE;
-            pkt[1].type = INPUT_KEYBOARD;  pkt[1].ki.wScan = static_cast<WORD>(ch);  pkt[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-            pkt[2].type = INPUT_KEYBOARD;  pkt[2].ki.wScan = static_cast<WORD>(lo);  pkt[2].ki.dwFlags = KEYEVENTF_UNICODE;
-            pkt[3].type = INPUT_KEYBOARD;  pkt[3].ki.wScan = static_cast<WORD>(lo);  pkt[3].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+            pkt[0].type = INPUT_KEYBOARD;  pkt[0].ki.wVk = 0;  pkt[0].ki.wScan = static_cast<WORD>(ch);  pkt[0].ki.dwFlags = KEYEVENTF_UNICODE;
+            pkt[1].type = INPUT_KEYBOARD;  pkt[1].ki.wVk = 0;  pkt[1].ki.wScan = static_cast<WORD>(ch);  pkt[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+            pkt[2].type = INPUT_KEYBOARD;  pkt[2].ki.wVk = 0;  pkt[2].ki.wScan = static_cast<WORD>(lo);  pkt[2].ki.dwFlags = KEYEVENTF_UNICODE;
+            pkt[3].type = INPUT_KEYBOARD;  pkt[3].ki.wVk = 0;  pkt[3].ki.wScan = static_cast<WORD>(lo);  pkt[3].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
             SendInput(4, pkt, sizeof(INPUT));
             i += 2;
-            Sleep(10);
+            Sleep(8);
             continue;
         }
 
-        // ── Decide strategy for this character ──────────────────────────
-        // ASCII printable + common controls → VK,  else → KEYEVENTF_UNICODE
-        bool useVk =
-            (ch >= 0x20 && ch <= 0x7E) ||
-            ch == L'\t' || ch == L'\n' || ch == L'\r' ||
-            ch == L'\b' || ch == 0x1B;
+        // ── Unified KEYEVENTF_UNICODE path (every character) ────────────
+        // wVk = 0 is required by MSDN for KEYEVENTF_UNICODE, which tells
+        // Windows to synthesize a VK_PACKET keystroke carrying the literal
+        // Unicode character in wScan.  The IME is bypassed.
+        INPUT pair[2] = {};
+        pair[0].type = INPUT_KEYBOARD;  pair[0].ki.wVk = 0;  pair[0].ki.wScan = static_cast<WORD>(ch);  pair[0].ki.dwFlags = KEYEVENTF_UNICODE;
+        pair[1].type = INPUT_KEYBOARD;  pair[1].ki.wVk = 0;  pair[1].ki.wScan = static_cast<WORD>(ch);  pair[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+        SendInput(2, pair, sizeof(INPUT));
+        i++;
 
-        if (useVk) {
-            // ── VK path ─────────────────────────────────────────────────
-            BYTE vk = 0;
-            BYTE shiftState = 0;
-
-            if (ch == L'\t')       vk = VK_TAB;
-            else if (ch == L'\n' || ch == L'\r') vk = VK_RETURN;
-            else if (ch == L'\b')  vk = VK_BACK;
-            else if (ch == 0x1B)   vk = VK_ESCAPE;
-            else {
-                SHORT r = VkKeyScanExW(ch, targetLayout);
-                if (r == -1) goto fallback_unicode;
-                vk = static_cast<BYTE>(r & 0xFF);
-                if (vk == 0xFF) goto fallback_unicode;
-                shiftState = static_cast<BYTE>((static_cast<WORD>(r) >> 8) & 0xFF);
-            }
-
-            // Build the event sequence: modifier downs, key down, key up,
-            // modifier ups — all in one array so SendInput sees them as
-            // one atomic batch.
-            INPUT batch[7] = {};
-            int idx = 0;
-
-            auto press = [&](BYTE code) {
-                batch[idx].type = INPUT_KEYBOARD; batch[idx].ki.wVk = code; idx++;
-            };
-            auto release = [&](BYTE code) {
-                batch[idx].type = INPUT_KEYBOARD; batch[idx].ki.wVk = code; batch[idx].ki.dwFlags = KEYEVENTF_KEYUP; idx++;
-            };
-
-            // Modifier-down order: Shift → Ctrl → Alt
-            if (shiftState & 1) press(VK_SHIFT);
-            if (shiftState & 2) press(VK_CONTROL);
-            if (shiftState & 4) press(VK_MENU);
-
-            press(vk);
-            release(vk);
-
-            // Modifier-up order: Alt → Ctrl → Shift (reverse of down)
-            if (shiftState & 4) release(VK_MENU);
-            if (shiftState & 2) release(VK_CONTROL);
-            if (shiftState & 1) release(VK_SHIFT);
-
-            SendInput(static_cast<UINT>(idx), batch, sizeof(INPUT));
-            i++;
-
-        } else {
-fallback_unicode:
-            // ── KEYEVENTF_UNICODE path ──────────────────────────────────
-            INPUT pair[2] = {};
-            pair[0].type = INPUT_KEYBOARD;  pair[0].ki.wScan = static_cast<WORD>(ch);  pair[0].ki.dwFlags = KEYEVENTF_UNICODE;
-            pair[1].type = INPUT_KEYBOARD;  pair[1].ki.wScan = static_cast<WORD>(ch);  pair[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-            SendInput(2, pair, sizeof(INPUT));
-            i++;
-        }
-
-        Sleep(10);
+        Sleep(8);
     }
 
     return Napi::Boolean::New(env, true);
