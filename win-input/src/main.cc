@@ -249,6 +249,29 @@ static bool SendUnicodeCodeUnit(WORD codeUnit, TextSendDiagnostics& diag) {
     return true;
 }
 
+static bool SendShiftEnter(TextSendDiagnostics& diag) {
+    INPUT batch[4] = {};
+    batch[0].type = INPUT_KEYBOARD;
+    batch[0].ki.wVk = VK_SHIFT;
+    batch[1].type = INPUT_KEYBOARD;
+    batch[1].ki.wVk = VK_RETURN;
+    batch[2].type = INPUT_KEYBOARD;
+    batch[2].ki.wVk = VK_RETURN;
+    batch[2].ki.dwFlags = KEYEVENTF_KEYUP;
+    batch[3].type = INPUT_KEYBOARD;
+    batch[3].ki.wVk = VK_SHIFT;
+    batch[3].ki.dwFlags = KEYEVENTF_KEYUP;
+
+    diag.packetsAttempted += 4;
+    UINT sent = SendInput(4, batch, sizeof(INPUT));
+    diag.packetsSent += static_cast<int>(sent);
+    if (sent != 4) {
+        diag.lastError = GetLastError();
+        return false;
+    }
+    return true;
+}
+
 // Fresh implementation: one UTF-16 code unit in, one KEYEVENTF_UNICODE
 // down/up pair out.  No mixed delivery modes, no historical fallback paths.
 Napi::Value SendText(const Napi::CallbackInfo& info) {
@@ -266,9 +289,24 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
 
     diag.utf16Units = static_cast<int>(text.size());
     diag.codeUnits.reserve(text.size());
-    for (wchar_t ch : text) {
+    for (size_t i = 0; i < text.size(); i++) {
+        wchar_t ch = text[i];
         diag.codeUnits.push_back(static_cast<WORD>(ch));
-        if (!SendUnicodeCodeUnit(static_cast<WORD>(ch), diag)) {
+        if (ch == L'\r') {
+            if (i + 1 < text.size() && text[i + 1] == L'\n') {
+                diag.codeUnits.push_back(static_cast<WORD>(text[i + 1]));
+                i++;
+            }
+            if (!SendShiftEnter(diag)) {
+                StoreTextDiagnostics(diag);
+                return Napi::Boolean::New(env, false);
+            }
+        } else if (ch == L'\n') {
+            if (!SendShiftEnter(diag)) {
+                StoreTextDiagnostics(diag);
+                return Napi::Boolean::New(env, false);
+            }
+        } else if (!SendUnicodeCodeUnit(static_cast<WORD>(ch), diag)) {
             StoreTextDiagnostics(diag);
             return Napi::Boolean::New(env, false);
         }

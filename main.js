@@ -796,29 +796,6 @@ function createWindow() {
 
 // ── Shortcuts ──
 
-async function triggerDefaultExecute() {
-  let fileName = (selectedJsonSetting || '').trim();
-  if (!fileName) {
-    const files = listClickFiles();
-    if (!files.length) return;
-    fileName = [...files].sort((a, b) => (a.name < b.name ? 1 : -1))[0].name;
-  }
-
-  const filePath = path.join(RECORDINGS_DIR(), fileName);
-  if (!fs.existsSync(filePath)) return;
-
-  try {
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    const clicks = data.clicks || [];
-    const perClick = clicks.map(c => c.input_text || null);
-    const hasPerClick = perClick.some(t => t !== null);
-    const inputs = hasPerClick ? perClick : null;
-    await playClicks(clicks, 0.5, inputs);
-  } catch (e) {
-    console.error('[trigger] play error:', e);
-  }
-}
-
 async function triggerPinyinFromClipboard() {
   const source = pinyinSourcesSetting?.shortcut === 'textbox' ? 'textbox' : 'clipboard';
   const raw = source === 'textbox' ? pinyinTextSetting : clipboard.readText() || '';
@@ -829,13 +806,10 @@ async function triggerPinyinFromClipboard() {
 }
 
 function registerShortcuts() {
-  const ok1 = globalShortcut.register('Ctrl+Shift+A', () => {
-    triggerDefaultExecute().catch(e => console.error('[shortcut] default execute failed', e));
-  });
-  const ok2 = globalShortcut.register('Ctrl+Shift+D', () => {
+  const ok = globalShortcut.register('Ctrl+Shift+D', () => {
     triggerPinyinFromClipboard().catch(e => console.error('[shortcut] pinyin failed', e));
   });
-  console.log(`[shortcut] Ctrl+Shift+A=${ok1} Ctrl+Shift+D=${ok2}`);
+  console.log(`[shortcut] Ctrl+Shift+D=${ok}`);
 }
 
 // ── App Lifecycle ──
