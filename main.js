@@ -476,20 +476,122 @@ async function playClicks(clicks, interval, inputs) {
 async function pinyinType(text, delaySeconds = 3, autoSwitchIme = false) {
   if (text.length === 0) return;
 
-  if (autoSwitchIme) {
-    // Switch to ASCII input source if configured
-    const config = readInputSourceConfig();
-    if (config.ascii_id) {
-      core.selectInputSource(config.ascii_id);
-    }
-    await sleepMs(300);
-  }
-
   if (delaySeconds > 0) {
     await sleepMs(delaySeconds * 1000);
   }
 
-  core.sendText(text);
+  if (process.platform !== 'win32' || typeof core.sendPhysicalText !== 'function') {
+    if (autoSwitchIme) {
+      const config = readInputSourceConfig();
+      if (config.ascii_id) {
+        core.selectInputSource(config.ascii_id);
+        await sleepMs(300);
+      }
+    }
+    core.sendText(text);
+    return;
+  }
+
+  const config = readInputSourceConfig();
+  const segments = buildWindowsSmartInputSegments(String(text || ''));
+  let currentMode = '';
+
+  const switchMode = async (mode) => {
+    if (!autoSwitchIme || mode === currentMode) return;
+    const targetId = mode === 'pinyin' ? config.pinyin_id : config.ascii_id;
+    if (targetId) {
+      core.selectInputSource(targetId);
+      await sleepMs(300);
+    }
+    currentMode = mode;
+  };
+
+  for (const segment of segments) {
+    await switchMode(segment.mode);
+
+    if (segment.kind === 'pinyin') {
+      core.sendPhysicalText(segment.text);
+      await sleepMs(80);
+      core.sendKey(0x31); // 1: select the first candidate explicitly
+      await sleepMs(80);
+      continue;
+    }
+
+    if (segment.kind === 'unicode') {
+      core.sendText(segment.text);
+    } else {
+      core.sendPhysicalText(segment.text);
+    }
+  }
+}
+
+function buildWindowsSmartInputSegments(text) {
+  const segments = [];
+  let breakBeforeNext = false;
+  const push = (mode, kind, value) => {
+    if (!value) return;
+    const prev = segments[segments.length - 1];
+    if (!breakBeforeNext && prev && prev.mode === mode && prev.kind === kind) {
+      prev.text += value;
+    } else {
+      segments.push({ mode, kind, text: value });
+    }
+    breakBeforeNext = false;
+  };
+
+  const cjkPunctuationToAsciiKey = {
+    '，': ',',
+    '。': '.',
+    '！': '!',
+    '？': '?',
+    '；': ';',
+    '：': ':',
+  };
+
+  const classifyAsciiRun = (value) => {
+    if (/^[a-z]+$/.test(value)) return { mode: 'pinyin', kind: 'pinyin' };
+    return { mode: 'ascii', kind: 'ascii' };
+  };
+
+  for (let i = 0; i < text.length; ) {
+    const ch = text[i];
+    if (/\s/.test(ch)) {
+      breakBeforeNext = true;
+      i++;
+      continue;
+    }
+
+    if (cjkPunctuationToAsciiKey[ch]) {
+      // Under a Chinese IME, pressing the ordinary punctuation key produces
+      // the corresponding full-width punctuation while keeping real keystrokes.
+      push('pinyin', 'ascii', cjkPunctuationToAsciiKey[ch]);
+      i++;
+      continue;
+    }
+
+    if (ch.charCodeAt(0) <= 0x7F) {
+      let j = i;
+      while (
+        j < text.length &&
+        text[j].charCodeAt(0) <= 0x7F &&
+        !/\s/.test(text[j])
+      ) {
+        j++;
+      }
+      const value = text.slice(i, j);
+      const { mode, kind } = classifyAsciiRun(value);
+      push(mode, kind, value);
+      i = j;
+      continue;
+    }
+
+    // Prototype fallback: unsupported non-ASCII text still uses the old path.
+    // This keeps existing behavior available while the pinyin path is tested.
+    push('ascii', 'unicode', ch);
+    i++;
+  }
+
+  return segments;
 }
 
 // ── IPC Handlers ──
