@@ -453,7 +453,7 @@ function sleepMs(ms) {
 }
 
 function sanitizeKeyboardInput(text = '') {
-  return String(text).replace(/[^\p{Script=Han}A-Za-z\s]/gu, '');
+  return String(text).replace(/[^\p{Script=Han}A-Za-z0-9\s]/gu, '');
 }
 
 async function playClicks(clicks, interval, inputs) {

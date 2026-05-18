@@ -148,7 +148,7 @@ function App() {
   }
 
   const sanitizeKeyboardInput = (text = '') =>
-    String(text).replace(/[^\p{Script=Han}A-Za-z\s]/gu, '')
+    String(text).replace(/[^\p{Script=Han}A-Za-z0-9\s]/gu, '')
 
   const handleKeyboardInputChange = (e) => {
     setName(sanitizeKeyboardInput(e.target.value))
