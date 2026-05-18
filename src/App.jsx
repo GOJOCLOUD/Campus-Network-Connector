@@ -148,6 +148,24 @@ function App() {
     try { const t = await navigator.clipboard.readText(); return (t || '').trim() } catch (_) { return '' }
   }
 
+  const sanitizeKeyboardInput = (text = '') =>
+    String(text).replace(/[^\p{Script=Han}A-Za-z\s]/gu, '')
+
+  const handleKeyboardInputChange = (e) => {
+    setName(sanitizeKeyboardInput(e.target.value))
+  }
+
+  const handleKeyboardInputPaste = (e) => {
+    e.preventDefault()
+    const pasted = e.clipboardData?.getData('text') || ''
+    const filtered = sanitizeKeyboardInput(pasted)
+    const el = e.currentTarget
+    const start = el.selectionStart ?? name.length
+    const end = el.selectionEnd ?? name.length
+    const next = `${name.slice(0, start)}${filtered}${name.slice(end)}`
+    setName(sanitizeKeyboardInput(next))
+  }
+
   const requestPinyinInput = (text) => {
     const t = (text || '').trim()
     if (!t) {
@@ -693,8 +711,9 @@ function App() {
           <div className="relative w-full mb-3">
             <textarea
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="输入要键入的内容（中英文均可）"
+              onChange={handleKeyboardInputChange}
+              onPaste={handleKeyboardInputPaste}
+              placeholder="仅保留中英文，粘贴时会自动过滤符号"
               className="bg-gray-100 text-gray-900 border border-gray-300 rounded px-3 py-2 w-full min-h-[2.5rem] resize-y pr-7"
               rows={3} style={{ resize: 'vertical' }} title="右下角可拖拽拉高"
             />
