@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('cnc', {
 
   // Keyboard
   sendText(text) { return ipcRenderer.invoke('native:sendText', text); },
+  getLastTextSendDiagnostics() { return ipcRenderer.invoke('native:getLastTextSendDiagnostics'); },
   sendKey(keyCode, flags) { return ipcRenderer.invoke('native:sendKey', keyCode, flags); },
 
   // Input source

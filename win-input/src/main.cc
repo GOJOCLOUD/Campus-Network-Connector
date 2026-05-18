@@ -195,68 +195,112 @@ Napi::Value TapFailed(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(info.Env(), g_hookFailed.load());
 }
 
-// ── SendText via SendInput (VK_PACKET / KEYEVENTF_UNICODE) ────────────────
-//
-// Every character is sent as KEYEVENTF_UNICODE (VK_PACKET), regardless of
-// whether it is ASCII or CJK.  This completely bypasses the keyboard-layout
-// mapping (VkKeyScanExW) and the active IME's composition — each character
-// arrives at the target as its exact Unicode codepoint.
-//
-// Previously there was a split strategy: ASCII went through VkKeyScanExW +
-// SendInput with virtual-key codes, while non-ASCII used KEYEVENTF_UNICODE.
-// That caused "，不然 → ，，然" corruption when a Chinese IME was active,
-// because the IME intercepts VK keystrokes and applies its own punctuation
-// / composition logic.  The unified UNICODE path eliminates that entirely.
-//
-// Each character's down+up pair is batched into one SendInput call for
-// atomicity.  An inter-character Sleep(8) gives the target window time to
-// process each WM_CHAR before the next one arrives.
+// ── Text input diagnostics ────────────────────────────────────────────────
 
+struct TextSendDiagnostics {
+    bool ok = false;
+    int utf16Units = 0;
+    int packetsAttempted = 0;
+    int packetsSent = 0;
+    DWORD lastError = 0;
+    std::vector<WORD> codeUnits;
+};
+
+static std::mutex g_textDiagMutex;
+static TextSendDiagnostics g_lastTextSend;
+
+static void StoreTextDiagnostics(const TextSendDiagnostics& diag) {
+    std::lock_guard<std::mutex> lock(g_textDiagMutex);
+    g_lastTextSend = diag;
+}
+
+static bool BuildUtf16Text(const std::string& utf8Text, std::wstring& out) {
+    int wideLen = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Text.c_str(), -1, nullptr, 0);
+    if (wideLen <= 0) return false;
+
+    std::wstring buffer(static_cast<size_t>(wideLen), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8Text.c_str(), -1, &buffer[0], wideLen) <= 0) {
+        return false;
+    }
+    buffer.pop_back(); // remove terminating NUL
+    out = std::move(buffer);
+    return true;
+}
+
+static bool SendUnicodeCodeUnit(WORD codeUnit, TextSendDiagnostics& diag) {
+    INPUT pair[2] = {};
+    pair[0].type = INPUT_KEYBOARD;
+    pair[0].ki.wVk = 0;
+    pair[0].ki.wScan = codeUnit;
+    pair[0].ki.dwFlags = KEYEVENTF_UNICODE;
+
+    pair[1].type = INPUT_KEYBOARD;
+    pair[1].ki.wVk = 0;
+    pair[1].ki.wScan = codeUnit;
+    pair[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+
+    diag.packetsAttempted += 2;
+    UINT sent = SendInput(2, pair, sizeof(INPUT));
+    diag.packetsSent += static_cast<int>(sent);
+    if (sent != 2) {
+        diag.lastError = GetLastError();
+        return false;
+    }
+    return true;
+}
+
+// Fresh implementation: one UTF-16 code unit in, one KEYEVENTF_UNICODE
+// down/up pair out.  No mixed delivery modes, no historical fallback paths.
 Napi::Value SendText(const Napi::CallbackInfo& info) {
     auto env = info.Env();
     std::string utf8Text = info[0].As<Napi::String>().Utf8Value();
     if (utf8Text.empty()) return Napi::Boolean::New(env, false);
 
-    // Convert UTF-8 to UTF-16
-    int wideLen = MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, nullptr, 0);
-    if (wideLen <= 0) return Napi::Boolean::New(env, false);
-
-    std::wstring wideText(wideLen, L'\0');
-    if (MultiByteToWideChar(CP_UTF8, 0, utf8Text.c_str(), -1, &wideText[0], wideLen) <= 0) {
+    TextSendDiagnostics diag;
+    std::wstring text;
+    if (!BuildUtf16Text(utf8Text, text)) {
+        diag.lastError = GetLastError();
+        StoreTextDiagnostics(diag);
         return Napi::Boolean::New(env, false);
     }
 
-    for (int i = 0; i < wideLen - 1; ) {
-        wchar_t ch = wideText[i];
-
-        // ── Surrogate pair (emoji etc.) ─────────────────────────────────
-        if (ch >= 0xD800 && ch <= 0xDBFF && i + 1 < wideLen - 1) {
-            wchar_t lo = wideText[i + 1];
-            INPUT pkt[4] = {};
-            pkt[0].type = INPUT_KEYBOARD;  pkt[0].ki.wVk = 0;  pkt[0].ki.wScan = static_cast<WORD>(ch);  pkt[0].ki.dwFlags = KEYEVENTF_UNICODE;
-            pkt[1].type = INPUT_KEYBOARD;  pkt[1].ki.wVk = 0;  pkt[1].ki.wScan = static_cast<WORD>(ch);  pkt[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-            pkt[2].type = INPUT_KEYBOARD;  pkt[2].ki.wVk = 0;  pkt[2].ki.wScan = static_cast<WORD>(lo);  pkt[2].ki.dwFlags = KEYEVENTF_UNICODE;
-            pkt[3].type = INPUT_KEYBOARD;  pkt[3].ki.wVk = 0;  pkt[3].ki.wScan = static_cast<WORD>(lo);  pkt[3].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-            SendInput(4, pkt, sizeof(INPUT));
-            i += 2;
-            Sleep(8);
-            continue;
+    diag.utf16Units = static_cast<int>(text.size());
+    diag.codeUnits.reserve(text.size());
+    for (wchar_t ch : text) {
+        diag.codeUnits.push_back(static_cast<WORD>(ch));
+        if (!SendUnicodeCodeUnit(static_cast<WORD>(ch), diag)) {
+            StoreTextDiagnostics(diag);
+            return Napi::Boolean::New(env, false);
         }
-
-        // ── Unified KEYEVENTF_UNICODE path (every character) ────────────
-        // wVk = 0 is required by MSDN for KEYEVENTF_UNICODE, which tells
-        // Windows to synthesize a VK_PACKET keystroke carrying the literal
-        // Unicode character in wScan.  The IME is bypassed.
-        INPUT pair[2] = {};
-        pair[0].type = INPUT_KEYBOARD;  pair[0].ki.wVk = 0;  pair[0].ki.wScan = static_cast<WORD>(ch);  pair[0].ki.dwFlags = KEYEVENTF_UNICODE;
-        pair[1].type = INPUT_KEYBOARD;  pair[1].ki.wVk = 0;  pair[1].ki.wScan = static_cast<WORD>(ch);  pair[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-        SendInput(2, pair, sizeof(INPUT));
-        i++;
-
         Sleep(8);
     }
 
+    diag.ok = true;
+    StoreTextDiagnostics(diag);
     return Napi::Boolean::New(env, true);
+}
+
+Napi::Value GetLastTextSendDiagnostics(const Napi::CallbackInfo& info) {
+    auto env = info.Env();
+    TextSendDiagnostics diag;
+    {
+        std::lock_guard<std::mutex> lock(g_textDiagMutex);
+        diag = g_lastTextSend;
+    }
+
+    auto obj = Napi::Object::New(env);
+    obj.Set("ok", Napi::Boolean::New(env, diag.ok));
+    obj.Set("utf16Units", Napi::Number::New(env, diag.utf16Units));
+    obj.Set("packetsAttempted", Napi::Number::New(env, diag.packetsAttempted));
+    obj.Set("packetsSent", Napi::Number::New(env, diag.packetsSent));
+    obj.Set("lastError", Napi::Number::New(env, diag.lastError));
+
+    auto units = Napi::Array::New(env, diag.codeUnits.size());
+    for (size_t i = 0; i < diag.codeUnits.size(); i++) {
+        units.Set(static_cast<uint32_t>(i), Napi::Number::New(env, diag.codeUnits[i]));
+    }
+    obj.Set("codeUnits", units);
+    return obj;
 }
 
 Napi::Value SendKey(const Napi::CallbackInfo& info) {
@@ -400,6 +444,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("isRecording",         Napi::Function::New(env, IsRecording));
     exports.Set("tapFailed",           Napi::Function::New(env, TapFailed));
     exports.Set("sendText",            Napi::Function::New(env, SendText));
+    exports.Set("getLastTextSendDiagnostics", Napi::Function::New(env, GetLastTextSendDiagnostics));
     exports.Set("sendKey",             Napi::Function::New(env, SendKey));
     exports.Set("getCurrentInputSource", Napi::Function::New(env, GetCurrentInputSource));
     exports.Set("selectInputSource",   Napi::Function::New(env, SelectInputSource));

@@ -583,6 +583,11 @@ ipcMain.handle('native:sendText', async (_e, text) => {
   return core.sendText(String(text || ''));
 });
 
+ipcMain.handle('native:getLastTextSendDiagnostics', async () => {
+  if (typeof core.getLastTextSendDiagnostics !== 'function') return null;
+  return core.getLastTextSendDiagnostics();
+});
+
 // Send key
 ipcMain.handle('native:sendKey', async (_e, keyCode, flags) => {
   return core.sendKey(keyCode, flags || 0);
