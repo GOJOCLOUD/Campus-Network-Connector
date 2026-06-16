@@ -24,6 +24,27 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Locate MSVC and setup environment
+        shell: pwsh
+        run: |
+          $vsWhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vsWhere -latest -property installationPath
+          Write-Host "VS installation: $vsPath"
+          $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+          Write-Host "vcvars: $vcvars"
+          if (Test-Path $vcvars) {
+            cmd /c "`"$vcvars`" >nul 2>&1 && set" | ForEach-Object {
+              if ($_ -match '^(VCINSTALLDIR|VSINSTALLDIR|WindowsSdkDir|WindowsSDKVersion|PATH|INCLUDE|LIB|LIBPATH)=') {
+                $name, $value = $_ -split '=', 2
+                Write-Host "  $name=$value"
+                Add-Content -Path $env:GITHUB_ENV -Value "$name=$value"
+              }
+            }
+            Write-Host "MSVC environment exported"
+          } else {
+            Write-Error "vcvars64.bat not found at $vcvars"
+          }
+
       - name: Build native addon + renderer + NSIS installer
         run: npm run dist:win
 
