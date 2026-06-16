@@ -14,7 +14,7 @@
     "electron:build": "npm run build && npm run build:native && env -u ELECTRON_RUN_AS_NODE electron .",
     "dist:mac:arm64": "npm run build && npm run build:native && npx electron-builder --mac dmg --arm64 --publish never",
     "dist:mac": "npm run build && npm run build:native && npx electron-builder --mac dir --publish never",
-    "build:win-native": "node-gyp rebuild --directory=win-input",
+    "build:win-native": "node-gyp rebuild --directory=win-input --msvs_version=2022",
     "dist:win": "npm run build && npm run build:win-native && npx electron-builder --win --publish never"
   },
   "dependencies": {
