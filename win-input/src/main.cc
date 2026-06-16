@@ -227,6 +227,29 @@ static bool BuildUtf16Text(const std::string& utf8Text, std::wstring& out) {
     return true;
 }
 
+// Send a single BMP character via WM_CHAR directly to the target window.
+// WM_CHAR is the FINAL output of the IME pipeline — by posting it directly
+// we bypass any TSF/IMM32 IME interception that corrupts mixed CN/EN/symbol text.
+static bool SendWMChar(HWND hwnd, WPARAM ch, TextSendDiagnostics& diag) {
+    diag.packetsAttempted += 1;
+    LRESULT result = SendMessageW(hwnd, WM_CHAR, ch, 0);
+    // SendMessageW returns 0 on success (window processed the message) or
+    // an error code; a non-zero return does not necessarily mean failure
+    // because the window procedure may return a meaningful value.
+    // We treat the send as successful if SendMessageW returned without
+    // setting a last error (which is the common case for WM_CHAR).
+    DWORD err = GetLastError();
+    if (result != 0 && err != 0) {
+        diag.lastError = err;
+        diag.packetsSent += 0;
+        return false;
+    }
+    diag.packetsSent += 1;
+    return true;
+}
+
+// Legacy fallback: SendInput with KEYEVENTF_UNICODE.
+// Used only when we don't have a foreground window to target with WM_CHAR.
 static bool SendUnicodeCodeUnit(WORD codeUnit, TextSendDiagnostics& diag) {
     INPUT pair[2] = {};
     pair[0].type = INPUT_KEYBOARD;
@@ -272,8 +295,17 @@ static bool SendShiftEnter(TextSendDiagnostics& diag) {
     return true;
 }
 
-// Fresh implementation: one UTF-16 code unit in, one KEYEVENTF_UNICODE
-// down/up pair out.  No mixed delivery modes, no historical fallback paths.
+// SendText: inject Unicode text that bypasses any IME/TSF interception.
+//
+// Strategy (Windows):
+//  - Send WM_CHAR directly to the foreground window for each character.
+//    WM_CHAR is the final output AFTER IME processing — posting it directly
+//    means the IME never sees or transforms the character.
+//  - Newline characters (\r, \n) use SendShiftEnter (VK_SHIFT + VK_RETURN)
+//    because WM_CHAR for newline behaves inconsistently across apps.
+//  - Surrogate pairs (characters outside BMP) are combined into a single
+//    code point and sent as one WM_CHAR.
+//  - Falls back to KEYEVENTF_UNICODE only when no foreground window exists.
 Napi::Value SendText(const Napi::CallbackInfo& info) {
     auto env = info.Env();
     std::string utf8Text = info[0].As<Napi::String>().Utf8Value();
@@ -287,11 +319,20 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
         return Napi::Boolean::New(env, false);
     }
 
+    // Cache the foreground window once at the start.
+    // If the user switches windows mid-input, characters may land in the
+    // wrong window — this is an acceptable trade-off vs. calling
+    // GetForegroundWindow() per character (which adds latency).
+    HWND fgHwnd = GetForegroundWindow();
+    bool useWMChar = (fgHwnd != nullptr);
+
     diag.utf16Units = static_cast<int>(text.size());
     diag.codeUnits.reserve(text.size());
     for (size_t i = 0; i < text.size(); i++) {
         wchar_t ch = text[i];
         diag.codeUnits.push_back(static_cast<WORD>(ch));
+
+        // ── Newline: use Shift+Enter ──
         if (ch == L'\r') {
             if (i + 1 < text.size() && text[i + 1] == L'\n') {
                 diag.codeUnits.push_back(static_cast<WORD>(text[i + 1]));
@@ -306,9 +347,43 @@ Napi::Value SendText(const Napi::CallbackInfo& info) {
                 StoreTextDiagnostics(diag);
                 return Napi::Boolean::New(env, false);
             }
-        } else if (!SendUnicodeCodeUnit(static_cast<WORD>(ch), diag)) {
-            StoreTextDiagnostics(diag);
-            return Napi::Boolean::New(env, false);
+        }
+        // ── Surrogate pair: combine high + low into full code point ──
+        else if (ch >= 0xD800 && ch <= 0xDBFF && i + 1 < text.size()
+                 && text[i + 1] >= 0xDC00 && text[i + 1] <= 0xDFFF) {
+            wchar_t low = text[i + 1];
+            diag.codeUnits.push_back(static_cast<WORD>(low));
+            // Combine: codepoint = 0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)
+            WPARAM cp = 0x10000
+                        + (static_cast<WPARAM>(ch) - 0xD800) * 0x400
+                        + (static_cast<WPARAM>(low) - 0xDC00);
+            bool ok;
+            if (useWMChar) {
+                ok = SendWMChar(fgHwnd, cp, diag);
+            } else {
+                // Fallback: can't send surrogates via KEYEVENTF_UNICODE reliably,
+                // so send as two separate code units (best effort).
+                ok = SendUnicodeCodeUnit(static_cast<WORD>(ch), diag)
+                  && SendUnicodeCodeUnit(static_cast<WORD>(low), diag);
+            }
+            if (!ok) {
+                StoreTextDiagnostics(diag);
+                return Napi::Boolean::New(env, false);
+            }
+            i++; // skip low surrogate
+        }
+        // ── Normal BMP character: WM_CHAR or KEYEVENTF_UNICODE fallback ──
+        else {
+            bool ok;
+            if (useWMChar) {
+                ok = SendWMChar(fgHwnd, static_cast<WPARAM>(ch), diag);
+            } else {
+                ok = SendUnicodeCodeUnit(static_cast<WORD>(ch), diag);
+            }
+            if (!ok) {
+                StoreTextDiagnostics(diag);
+                return Napi::Boolean::New(env, false);
+            }
         }
         Sleep(8);
     }
