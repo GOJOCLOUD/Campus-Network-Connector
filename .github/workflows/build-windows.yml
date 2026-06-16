@@ -24,6 +24,9 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Upgrade node-gyp (for VS2026 support)
+        run: npm install node-gyp@latest
+
       - name: Locate MSVC and setup environment
         shell: pwsh
         run: |
