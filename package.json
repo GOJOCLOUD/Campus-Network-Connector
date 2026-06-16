@@ -81,7 +81,7 @@
     "win": {
       "icon": "build/win-icon.ico",
       "target": [
-        "dir"
+        "nsis"
       ],
       "artifactName": "CampusNetworkConnector-win-${version}.${ext}"
     }
