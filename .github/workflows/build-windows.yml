@@ -27,25 +27,18 @@ jobs:
       - name: Build native addon + renderer + NSIS installer
         run: npm run dist:win
 
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Campus-Network-Connector-Win
-          path: release/**/*.exe
-          if-no-files-found: error
+      - name: Zip the app directory
+        shell: pwsh
+        run: |
+          Compress-Archive -Path release\win-unpacked\* -DestinationPath release\xyw-portable.zip
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: powershell
+        shell: pwsh
         run: |
-          $EXE = Get-ChildItem -Path release -Recurse -Filter *.exe | Select-Object -First 1
-          if (-not $EXE) {
-            Write-Error "No .exe found under release/"
-            exit 1
-          }
+          $ZIP = Get-ChildItem -Path release -Filter *.zip | Select-Object -First 1
+          if (-not $ZIP) { Write-Error "No zip found"; exit 1 }
           $TAG = "win-${{ github.run_id }}"
           $TITLE = "Windows build ${{ github.run_id }} (${{ github.ref_name }})"
-          $NOTES_FILE = [System.IO.Path]::GetTempFileName()
-          Set-Content -Path $NOTES_FILE -Value "Auto-built Windows exe. Branch: ${{ github.ref_name }}  Commit: ${{ github.sha }}" -Encoding UTF8
-          gh release create $TAG "$($EXE.FullName)" --title $TITLE --notes-file $NOTES_FILE --prerelease
+          gh release create $TAG "$($ZIP.FullName)" --title $TITLE --notes "Portable build. Extract and run. Branch: ${{ github.ref_name }}  Commit: ${{ github.sha }}" --prerelease
