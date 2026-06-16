@@ -147,22 +147,18 @@ function App() {
     try { const t = await navigator.clipboard.readText(); return (t || '').trim() } catch (_) { return '' }
   }
 
-  const sanitizeKeyboardInput = (text = '') =>
-    String(text).replace(/[^\p{Script=Han}A-Za-z0-9\s]/gu, '')
-
   const handleKeyboardInputChange = (e) => {
-    setName(sanitizeKeyboardInput(e.target.value))
+    setName(e.target.value)
   }
 
   const handleKeyboardInputPaste = (e) => {
     e.preventDefault()
     const pasted = e.clipboardData?.getData('text') || ''
-    const filtered = sanitizeKeyboardInput(pasted)
     const el = e.currentTarget
     const start = el.selectionStart ?? name.length
     const end = el.selectionEnd ?? name.length
-    const next = `${name.slice(0, start)}${filtered}${name.slice(end)}`
-    setName(sanitizeKeyboardInput(next))
+    const next = `${name.slice(0, start)}${pasted}${name.slice(end)}`
+    setName(next)
   }
 
   const requestPinyinInput = (text) => {
