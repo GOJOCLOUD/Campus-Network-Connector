@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { resolveBundleIdentifier } = require('./after-pack.cjs');
+const { default: afterPack, resolveBundleIdentifier } = require('./after-pack.cjs');
 
 test('package build appId keeps the existing app identity', () => {
   const packageJson = JSON.parse(
@@ -30,4 +30,20 @@ test('resolveBundleIdentifier reads CFBundleIdentifier from Info.plist', () => {
 `);
 
   assert.equal(resolveBundleIdentifier(appPath), 'com.gojocloud.campus-network-connector');
+});
+
+test('afterPack skips non-macOS targets', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'after-pack-win-'));
+
+  await assert.doesNotReject(() =>
+    afterPack({
+      appOutDir: tempDir,
+      electronPlatformName: 'win32',
+      packager: {
+        appInfo: {
+          productName: '模拟输入',
+        },
+      },
+    })
+  );
 });

@@ -11,7 +11,11 @@ function resolveBundleIdentifier(appPath) {
 }
 
 exports.default = async function afterPack(context) {
-  const { appOutDir, packager } = context;
+  const { appOutDir, electronPlatformName, packager } = context;
+  if (electronPlatformName && electronPlatformName !== 'darwin') {
+    return;
+  }
+
   const productName = packager.appInfo.productName;
   const appPath = path.join(appOutDir, `${productName}.app`);
   const bundleId = resolveBundleIdentifier(appPath);
