@@ -1,16 +1,26 @@
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
+
+function resolveBundleIdentifier(appPath) {
+  const infoPlist = path.join(appPath, 'Contents', 'Info.plist');
+  return execFileSync(
+    'plutil',
+    ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', infoPlist],
+    { encoding: 'utf8' }
+  ).trim();
+}
 
 exports.default = async function afterPack(context) {
   const { appOutDir, packager } = context;
   const productName = packager.appInfo.productName;
   const appPath = path.join(appOutDir, `${productName}.app`);
-  const bundleId = 'com.gojocloud.crossscreeninput';
+  const bundleId = resolveBundleIdentifier(appPath);
 
   // Ad-hoc sign the whole .app bundle (includes native .node addon)
   try {
-    execSync(
-      `codesign --force --deep --sign - --identifier "${bundleId}" "${appPath}"`,
+    execFileSync(
+      'codesign',
+      ['--force', '--deep', '--sign', '-', '--identifier', bundleId, appPath],
       { stdio: 'inherit' }
     );
     console.log(`[afterPack] ad-hoc signed ${appPath} (${bundleId})`);
@@ -18,3 +28,5 @@ exports.default = async function afterPack(context) {
     console.error('[afterPack] re-sign failed:', e.message);
   }
 };
+
+exports.resolveBundleIdentifier = resolveBundleIdentifier;
