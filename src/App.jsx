@@ -1,13 +1,17 @@
 import { useMemo, useState, useEffect, useRef } from 'react'
-import { createPortal } from 'react-dom'
 import Stepper, { Step } from './components/Stepper'
+import ActivationPanel from './panels/ActivationPanel'
+import DefaultExecutePanel from './panels/DefaultExecutePanel'
+import ClickPanel from './panels/ClickPanel'
+import KeyboardPanel from './panels/KeyboardPanel'
+import RenameDialog from './panels/RenameDialog'
+import UserAgreementDialog from './panels/UserAgreementDialog'
+import { USER_AGREEMENT_MD, TRIAL_SECONDS } from './lib/user-agreement'
 
 // cnc API helper — maps to window.cnc IPC calls
 const cnc = window.cnc || {};
 
 function App() {
-  const TRIAL_SECONDS = 604800 // 7 天
-
   const [name, setName] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const [clicks, setClicks] = useState([])
@@ -44,41 +48,6 @@ function App() {
   const refreshLockRef = useRef(false)
 
   const isActivated = activationStatus === 'trial' || activationStatus === 'licensed'
-
-  const USER_AGREEMENT_MD = useMemo(() => {
-    return `# 用户协议与免责条款（试用/激活前必读）
-
-## 1. 重要提示
-本软件用于在你的设备上执行自动化操作（包括但不限于模拟输入、模拟点击、读取/写入剪贴板、触发系统快捷键、访问辅助功能权限等）。这些能力可能导致**误操作、数据丢失、账号风险、系统不稳定**等后果。请在你完全理解并愿意自行承担风险的前提下使用。
-
-## 1.1 试用说明
-- 试用时长：${TRIAL_SECONDS}s。
-- 你点击"我同意"后即开始试用；试用期内软件处于可用状态。
-- 试用期结束后将恢复未激活状态，且该设备不再提供二次试用。
-
-## 2. 许可范围
-你获得的是在约定范围内使用本软件的许可，不获得源代码、商标或任何其他知识产权。你不得对软件进行反编译、逆向、破解、修改或用于非法用途。
-
-## 3. 你的责任
-- 你应确保你对被自动化操作的系统、账号、数据拥有合法授权。
-- 你应在使用前自行备份重要数据，并在可控环境中测试脚本/录制流程。
-- 你应自行判断输入内容、点击坐标、执行频率等参数是否安全合理。
-
-## 4. 免责声明（关键）
-在适用法律允许的最大范围内，软件按"现状"提供，不提供任何明示或暗示的担保，包括但不限于适销性、特定用途适用性、不侵权、持续可用性、无错误/无中断等。
-
-无论基于合同、侵权（包括过失）或其他任何法律理论，因使用或无法使用本软件导致的任何损失（包括但不限于利润损失、数据丢失、业务中断、系统故障、账号封禁、第三方索赔等），开发者均不承担责任。即使开发者已被告知可能发生上述损失亦然。
-
-## 5. 权限与隐私
-本软件可能需要系统权限以完成自动化功能。你同意在你的设备上自行授予必要权限，并自行评估该权限带来的风险。除为实现功能所必需的本地配置外，本软件不承诺一定不产生任何日志或临时文件；你应自行检查并妥善管理你的系统与数据。
-
-## 6. 终止
-若你违反本协议或法律法规，你的使用许可可被立即终止。终止后你应停止使用并删除本软件及其副本。
-
-## 7. 协议更新
-开发者可在不另行通知的情况下更新本协议。你继续使用即视为接受更新后的协议。
-`
-  }, [])
 
   // 功能模块：拉清单 + 轮询状态
   const refreshFeatures = useMemo(() => async () => {
@@ -126,41 +95,6 @@ function App() {
     } catch (_) {}
     setTimeout(refreshFeatures, 400);
   };
-
-  // 功能开关区（第 4 页）—— 由功能清单驱动，新增功能自动出现，无需改前端
-  const renderFeatureToggles = () => (
-    <>
-      {featureList.map((f) => {
-        const st = featureStatus[f.id]
-        if (st && st.supported === false) return null
-        const on = !!(st && st.enabled)
-        const stateText = !st
-          ? ''
-          : !on
-            ? '关闭中'
-            : st.injected
-              ? '已接管'
-              : '已开启'
-        return (
-          <div key={f.id} className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <span className="font-medium">{f.title}</span>
-                <span className="ml-2 text-xs">
-                  {stateText ? stateText + '：' : ''}
-                  {f.description}
-                </span>
-              </div>
-              <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFeature(f.prefix, !on) }}
-                className={'shrink-0 font-medium py-1.5 px-4 rounded-lg transition duration-300 active:scale-95 transform ' + (on ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md' : 'bg-gray-200 hover:bg-gray-300 text-gray-600')}>
-                {on ? '关闭' : '开启'}
-              </button>
-            </div>
-          </div>
-        )
-      })}
-    </>
-  )
 
   const getLocal = (k, fallback = '') => {
     try {
@@ -530,6 +464,115 @@ function App() {
     defaultExecuteRef.current = handleDefaultExecute
   })
 
+  // ── 传给面板组件的 props(逻辑全在 App,面板只负责显示) ──
+  const activationPanelProps = {
+    isActivated,
+    activationStatus,
+    trialRemainingMs,
+    trialUsed,
+    deviceUuid,
+    activationCode,
+    onActivationCodeChange: setActivationCode,
+    activationUiMessage,
+    onStartTrial: () => { setUserAgreementMode('accept_to_start_trial'); setIsUserAgreementOpen(true) },
+    onViewAgreement: () => { setUserAgreementMode('view'); setIsUserAgreementOpen(true) },
+    onCopyUuid: () => {
+      const t = String(deviceUuid || '').trim()
+      if (!t) return
+      navigator.clipboard?.writeText?.(t).catch(() => {})
+      setActivationUiMessage('已复制 UUID')
+      setTimeout(() => setActivationUiMessage(''), 1200)
+    },
+    onActivate: async () => {
+      setActivationUiMessage('')
+      const code = String(activationCode || '').trim()
+      if (!code) { setActivationUiMessage('请输入激活码'); return }
+      try {
+        const r = await cnc.saveLicense(code)
+        if (r.ok) {
+          setActivationStatus('licensed')
+          setActivationUiMessage('激活成功')
+          setTimeout(() => setActivationUiMessage(''), 1500)
+        } else { setActivationUiMessage(r.error || '激活失败') }
+      } catch (_) { setActivationUiMessage('激活失败') }
+    },
+  }
+
+  const defaultExecutePanelProps = {
+    isExecuting,
+    onDefaultExecute: (e) => { e.preventDefault(); e.stopPropagation(); handleDefaultExecute() },
+    selectedJson,
+    showJsonDropdown,
+    onToggleDropdown: (e) => {
+      e.preventDefault(); e.stopPropagation()
+      const next = !showJsonDropdown
+      if (next && selectButtonRef.current) {
+        const rect = selectButtonRef.current.getBoundingClientRect()
+        setDropdownPosition({ top: rect.bottom + 4, left: rect.left })
+      }
+      setShowJsonDropdown(next)
+      if (next) getJsonFiles()
+    },
+    selectButtonRef,
+    dropdownRef,
+    dropdownPosition,
+    filesLoading,
+    jsonFiles,
+    onSelectFile: (name) => { setSelectedJson(name); setShowJsonDropdown(false) },
+  }
+
+  const clickPanelProps = {
+    isManageMode,
+    countdown,
+    isRecording,
+    clicks,
+    message,
+    clickInputs,
+    onClickInputChange: (index, v) => setClickInputs(prev => { const next = [...prev]; next[index] = v; return next }),
+    onStart: handleStart,
+    onStop: handleStop,
+    onManage: handleManage,
+    onSave: handleSaveWithInputs,
+    onClear: handleClear,
+    jsonFiles,
+    onRename: handleRename,
+    onDelete: handleDelete,
+  }
+
+  const keyboardPanelProps = {
+    name,
+    onNameChange: setName,
+    onPinyinInput: (text) => requestPinyinInput(text || ''),
+    onClearText: () => setName(''),
+    pinyinCountdown,
+    message,
+    featureList,
+    featureStatus,
+    onToggleFeature: toggleFeature,
+  }
+
+  const renameDialogProps = {
+    open: isRenameModalOpen,
+    onClose: () => setIsRenameModalOpen(false),
+    selectedFile,
+    newFileName,
+    onNewFileNameChange: setNewFileName,
+    onSubmit: handleRenameSubmit,
+  }
+
+  const userAgreementDialogProps = {
+    open: isUserAgreementOpen,
+    onClose: () => setIsUserAgreementOpen(false),
+    mode: userAgreementMode,
+    text: USER_AGREEMENT_MD,
+    onAccept: async () => {
+      const expiresAt = Date.now() + TRIAL_SECONDS * 1000
+      await cnc.startTrial(expiresAt)
+      setActivationStatus('trial')
+      setIsUserAgreementOpen(false)
+    },
+  }
+
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
       {nativeStatus && nativeStatus.ok === false && (
@@ -549,320 +592,25 @@ function App() {
         nextDisabled={!isActivated}
       >
         <Step>
-          {isActivated ? (
-            <div className="text-sm text-gray-500 text-center py-8">已激活，无需重复激活</div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-lg font-semibold">激活</div>
-                <div className="text-xs text-gray-500">
-                  状态：{activationStatus === 'licensed' ? '已激活' : activationStatus === 'trial' ? `试用中（剩余 ${Math.ceil(trialRemainingMs / 1000)}s）` : '未激活'}
-                </div>
-              </div>
-
-              {!trialUsed ? (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => { setUserAgreementMode('accept_to_start_trial'); setIsUserAgreementOpen(true) }}
-                    className="relative w-1/3 bg-green-500 hover:bg-green-600 text-white font-medium text-sm h-10 px-3 rounded-lg transition duration-300 shadow-md active:scale-95 transform pr-9"
-                  >
-                    <span className="block text-center">开始试用</span>
-                    <span
-                      onClick={(e) => { e.stopPropagation(); setUserAgreementMode('view'); setIsUserAgreementOpen(true) }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-5 h-5 rounded-full border border-white/50 bg-white/10 text-white text-[12px] leading-none hover:bg-white/15 cursor-pointer select-none"
-                      title="用户协议" aria-label="用户协议"
-                    >?</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => { setUserAgreementMode('view'); setIsUserAgreementOpen(true) }}
-                    className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-100 text-[12px] leading-none"
-                    title="用户协议" aria-label="用户协议"
-                  >?</button>
-                </div>
-              )}
-
-              <div className="flex items-stretch gap-2">
-                <div className="flex-1 h-10 border border-gray-300 rounded-lg px-3 bg-white flex items-center gap-2 overflow-hidden">
-                  <span className="text-[11px] text-gray-400 select-none shrink-0">UUID</span>
-                  <input value={deviceUuid || '—'} readOnly className="flex-1 bg-transparent outline-none min-w-0 font-mono text-[11px] text-gray-700 truncate" />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const t = String(deviceUuid || '').trim()
-                    if (!t) return
-                    navigator.clipboard?.writeText?.(t).catch(() => {})
-                    setActivationUiMessage('已复制 UUID')
-                    setTimeout(() => setActivationUiMessage(''), 1200)
-                  }}
-                  className="h-10 shrink-0 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium text-sm px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform"
-                >复制</button>
-              </div>
-
-              <div className="flex items-stretch gap-2">
-                <div className="flex-1 h-10 border border-gray-300 rounded-lg px-3 bg-white flex items-center gap-2 overflow-hidden">
-                  <span className="text-[11px] text-gray-400 select-none shrink-0">激活码</span>
-                  <input value={activationCode} onChange={(e) => setActivationCode(e.target.value)} className="flex-1 bg-transparent outline-none text-sm min-w-0" placeholder="" />
-                </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setActivationUiMessage('')
-                    const code = String(activationCode || '').trim()
-                    if (!code) { setActivationUiMessage('请输入激活码'); return }
-                    try {
-                      const r = await cnc.saveLicense(code)
-                      if (r.ok) {
-                        setActivationStatus('licensed')
-                        setActivationUiMessage('激活成功')
-                        setTimeout(() => setActivationUiMessage(''), 1500)
-                      } else { setActivationUiMessage(r.error || '激活失败') }
-                    } catch (_) { setActivationUiMessage('激活失败') }
-                  }}
-                  className="h-10 shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform"
-                >激活</button>
-              </div>
-
-              {(activationUiMessage || activationUiMessage === '') && activationUiMessage ? (
-                <div className="text-sm text-gray-600">{activationUiMessage}</div>
-              ) : null}
-            </div>
-          )}
+          <ActivationPanel {...activationPanelProps} />
         </Step>
 
         <Step>
-          <div className="flex flex-col space-y-2">
-            <div className="flex items-center space-x-3">
-              <button
-                type="button"
-                disabled={isExecuting}
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDefaultExecute() }}
-                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform"
-              >{isExecuting ? '执行中…' : '默认执行'}</button>
-              <div className="relative">
-                <button
-                  ref={selectButtonRef}
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault(); e.stopPropagation()
-                    const next = !showJsonDropdown
-                    if (next && selectButtonRef.current) {
-                      const rect = selectButtonRef.current.getBoundingClientRect()
-                      setDropdownPosition({ top: rect.bottom + 4, left: rect.left })
-                    }
-                    setShowJsonDropdown(next)
-                    if (next) getJsonFiles()
-                  }}
-                  className="bg-gray-400 hover:bg-gray-500 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform"
-                >{selectedJson ? `选择录制: ${selectedJson}` : '选择录制'}</button>
-                {showJsonDropdown && createPortal(
-                  <div
-                    ref={dropdownRef}
-                    className="fixed z-[9999] w-64 bg-white rounded-lg shadow-lg border border-gray-200 max-h-60 overflow-auto"
-                    style={{ top: dropdownPosition.top, left: dropdownPosition.left }}
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    {filesLoading ? (
-                      <div className="px-3 py-2 text-xs text-gray-500">加载中...</div>
-                    ) : jsonFiles.length > 0 ? (
-                      jsonFiles.map(file => (
-                        <button key={file.id} type="button"
-                          onClick={() => { setSelectedJson(file.name); setShowJsonDropdown(false) }}
-                          className={`w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 ${selectedJson === file.name ? 'bg-gray-100 font-medium' : ''}`}
-                        >{file.name}</button>
-                      ))
-                    ) : (
-                      <div className="px-3 py-2 text-xs text-gray-500">暂无录制文件</div>
-                    )}
-                  </div>,
-                  document.body
-                )}
-              </div>
-            </div>
-          </div>
+          <DefaultExecutePanel {...defaultExecutePanelProps} />
         </Step>
 
         <Step>
-          <div className={`flex flex-col gap-4 w-full transition-all duration-500 ${isManageMode ? 'items-center' : ''}`}>
-            {!isManageMode ? (
-              <div className="flex w-full gap-4">
-                <div className="flex flex-col space-y-4 w-fit">
-                  <h2>模拟点击</h2>
-                  <div className="flex flex-col space-y-3">
-                    <button onClick={handleStart}
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform text-center w-full">开始</button>
-                    <button onClick={handleStop}
-                      className="bg-gray-400 hover:bg-gray-500 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform text-center w-full">结束</button>
-                    <button onClick={handleManage}
-                      className="bg-gray-500 hover:bg-gray-600 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform text-center w-full">管理</button>
-                  </div>
-                </div>
-                <div className="bg-gray-200 rounded-lg p-6 flex-1">
-                  {countdown > 0 ? (
-                    <div className="flex flex-col space-y-2">
-                      <p className="text-sm text-yellow-500">{countdown}秒后开始录制</p>
-                    </div>
-                  ) : isRecording ? (
-                    <div className="flex flex-col space-y-2">
-                      <p className="text-sm text-green-500">录制中...</p>
-                      <h3 className="font-medium">点击坐标：</h3>
-                      {clicks.length > 0 ? (
-                        <ul className="space-y-1 max-h-48 overflow-auto">
-                          {clicks.map((click, index) => (
-                            <li key={index} className="text-sm">第{index + 1}次: ({Math.round(click.x)}, {Math.round(click.y)})</li>
-                          ))}
-                        </ul>
-                      ) : (<p className="text-sm text-gray-500">等待点击...</p>)}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col space-y-2">
-                      {message && <p className="text-sm text-gray-500">{message}</p>}
-                      {clicks.length > 0 ? (
-                        <>
-                          <h3 className="font-medium">点击坐标（可配置每次输入）：</h3>
-                          <div className="space-y-2">
-                            <ul className="space-y-1 max-h-48 overflow-auto">
-                              {clicks.map((click, index) => (
-                                <li key={index} className="text-sm flex flex-col space-y-1">
-                                  <span>第{index + 1}次: ({Math.round(click.x)}, {Math.round(click.y)})</span>
-                                  <input type="text"
-                                    value={clickInputs[index] || ''}
-                                    onChange={e => { const v = e.target.value; setClickInputs(prev => { const next = [...prev]; next[index] = v; return next }) }}
-                                    placeholder="此点击后输入的内容（可选）"
-                                    className="mt-1 w-full border border-gray-300 rounded px-2 py-1 text-xs" />
-                                </li>
-                              ))}
-                            </ul>
-                            <div className="flex space-x-2 mt-2">
-                              <button onClick={handleSaveWithInputs}
-                                className="bg-blue-600 hover:bg-blue-700 text-white text-sm py-1 px-3 rounded-lg transition duration-300 shadow-md active:scale-95 transform">保存</button>
-                              <button onClick={handleClear}
-                                className="bg-gray-400 hover:bg-gray-500 text-white text-sm py-1 px-3 rounded-lg transition duration-300 shadow-md active:scale-95 transform">清空</button>
-                            </div>
-                          </div>
-                        </>
-                      ) : (<p className="text-sm text-gray-500">未开始录制</p>)}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="w-full max-w-md animate-fadeIn">
-                <h2 className="text-2xl font-bold mb-6 text-center">管理录制文件</h2>
-                <div className="bg-gray-200 rounded-lg p-6">
-                  {jsonFiles.length > 0 ? (
-                    <ul className="space-y-4">
-                      {jsonFiles.map((file) => (
-                        <li key={file.id} className="flex items-center justify-between">
-                          <span className="text-sm truncate flex-1 mr-2">{file.name}</span>
-                          <div className="flex space-x-2 whitespace-nowrap">
-                            <button onClick={() => handleRename(file.name)}
-                              className="bg-blue-500 hover:bg-blue-600 text-white text-xs py-0.5 px-2 rounded">重命名</button>
-                            <button onClick={() => handleDelete(file.name)}
-                              className="bg-gray-400 hover:bg-gray-500 text-white text-xs py-0.5 px-2 rounded">删除</button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (<p className="text-sm text-gray-500 text-center">暂无录制文件</p>)}
-                  <button onClick={handleManage}
-                    className="mt-6 w-full bg-gray-500 hover:bg-gray-600 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform">返回</button>
-                </div>
-              </div>
-            )}
-          </div>
+          <ClickPanel {...clickPanelProps} />
         </Step>
 
         <Step>
-          <h2>键盘输入</h2>
-          {renderFeatureToggles()}
-          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">输入完成前不要尝试操作电脑，否则可能导致电脑死机（强制重启可以解决）</p>
-          <div className="relative w-full mb-3">
-            <textarea
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="输入要键入的内容（中英文均可）"
-              className="bg-gray-100 text-gray-900 border border-gray-300 rounded px-3 py-2 w-full min-h-[2.5rem] resize-y pr-7"
-              rows={3} style={{ resize: 'vertical' }} title="右下角可拖拽拉高"
-            />
-            <span className="absolute bottom-1.5 right-1.5 pointer-events-none text-gray-400 select-none" aria-hidden>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="opacity-70">
-                <path d="M12 16l-4-4h3V8h2v4h3l-4 4z" />
-              </svg>
-            </span>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button type="button" onClick={() => requestPinyinInput(name || '')}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform">开始输入（3s 后键入）</button>
-            <button type="button" onClick={() => setName('')}
-              className="bg-gray-200 hover:bg-gray-300 text-gray-600 font-medium py-1.5 px-4 rounded-lg transition duration-300 active:scale-95 transform">清空</button>
-          </div>
-          {pinyinCountdown > 0 && (
-            <p className="text-sm text-yellow-500 mt-2">{pinyinCountdown} 秒后开始输入，请将光标移动到目标位置</p>
-          )}
-          {message && pinyinCountdown === 0 && (
-            <p className="text-sm text-gray-500 mt-2">{message}</p>
-          )}
+          <KeyboardPanel {...keyboardPanelProps} />
         </Step>
       </Stepper>
 
-      {isRenameModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">重命名文件</h3>
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">当前文件名</label>
-              <p className="text-sm text-gray-600 mb-2">{selectedFile}</p>
-              <label className="block text-sm font-medium mb-2">新文件名</label>
-              <input type="text" value={newFileName} onChange={(e) => setNewFileName(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-2" placeholder="请输入新文件名" />
-            </div>
-            <div className="flex justify-end space-x-3">
-              <button onClick={() => setIsRenameModalOpen(false)}
-                className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">取消</button>
-              <button onClick={handleRenameSubmit}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">确认</button>
-            </div>
-          </div>
-        </div>
-      )}
+<RenameDialog {...renameDialogProps} />
 
-      {isUserAgreementOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-          onMouseDown={() => setIsUserAgreementOpen(false)}>
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto"
-            onMouseDown={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <h3 className="text-lg font-semibold">用户协议</h3>
-              <button type="button" onClick={() => setIsUserAgreementOpen(false)}
-                className="text-gray-500 hover:text-gray-700 px-2 py-1" aria-label="关闭">关闭</button>
-            </div>
-            <div className="space-y-3 text-sm text-gray-700 whitespace-pre-wrap">{USER_AGREEMENT_MD}</div>
-            <div className="pt-4 flex justify-end gap-2">
-              {userAgreementMode === 'accept_to_start_trial' ? (
-                <>
-                  <button type="button" onClick={() => setIsUserAgreementOpen(false)}
-                    className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded">拒绝</button>
-                  <button type="button" onClick={async () => {
-                    const expiresAt = Date.now() + TRIAL_SECONDS * 1000
-                    await cnc.startTrial(expiresAt)
-                    setActivationStatus('trial')
-                    setIsUserAgreementOpen(false)
-                  }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">我同意</button>
-                </>
-              ) : (
-                <button type="button" onClick={() => setIsUserAgreementOpen(false)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">知道了</button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+<UserAgreementDialog {...userAgreementDialogProps} />
     </div>
   )
 }
