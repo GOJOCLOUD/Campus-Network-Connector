@@ -60,14 +60,48 @@ if (fs.existsSync(nodePath)) {
   }
 }
 
-// ③ Safari 修复运行时文件在 asar 里
-let asarList = [];
-try {
-  asarList = execFileSync('npx', ['asar', 'list', ASAR], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
-    .split('\n').map((s) => s.trim()).filter(Boolean);
-} catch (e) {
-  console.log('  (无法读取 asar 列表:', e.message + ')');
+/** 把 asar 解到指定目录:优先用 @electron/asar 的 API,兜底走命令行。 */
+function extractAsar(asarPath, outDir) {
+  try {
+    const asar = require('@electron/asar');
+    if (typeof asar.extractAll === 'function') {
+      asar.extractAll(asarPath, outDir);
+      return;
+    }
+  } catch (_) { /* 走命令行兜底 */ }
+  const cli = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  execFileSync(cli, ['asar', 'extract', asarPath, outDir], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
+
+// ③ Safari 修复运行时文件在 asar 里
+/**
+ * 读 asar 里的文件清单。
+ * 优先用 @electron/asar 的 API(纯 JS、跨平台);
+ * 兜底走命令行时**必须按平台选 npx / npx.cmd** —— Windows 上 npx 是 npx.cmd,
+ * 直接 spawn 'npx' 会 ENOENT(踩过:清单读不到 → 一堆检查假失败)。
+ */
+function listAsar(asarPath) {
+  try {
+    const asar = require('@electron/asar');
+    if (typeof asar.listPackage === 'function') {
+      return asar.listPackage(asarPath).map((p) => String(p).replace(/\\/g, '/'));
+    }
+  } catch (_) { /* 走命令行兜底 */ }
+  const cli = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  try {
+    return execFileSync(cli, ['asar', 'list', asarPath], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+      .split('\n').map((s) => s.trim()).filter(Boolean);
+  } catch (e) {
+    console.log('  (无法读取 asar 列表:', e.message + ')');
+    return null;
+  }
+}
+
+const asarList = listAsar(ASAR);
+if (asarList === null) {
+  // 读不到清单 → 下面的"含/不含"判断全都失去意义,必须当作失败
+  check('能读取 asar 清单', false, '清单读不到 → 内容检查无法进行');
+} else {
 const needFiles = [
   '/src/features/safari-repair/engine.js',
   '/src/features/safari-repair/coordinator.js',
@@ -94,12 +128,13 @@ check('asar 内不含算法源码 packages/', !asarList.some((f) => f.startsWith
 check('asar 内不含浏览器扩展 apps/', !asarList.some((f) => f.startsWith('/apps/')));
 check('asar 内不含跨浏览器测试 tests/', !asarList.some((f) => f.startsWith('/tests/')));
 check('asar 内不含零散 markdown', !asarList.some((f) => f.endsWith('.md') && !f.startsWith('/node_modules/')));
+} // ← asar 清单可读
 
 // ⑤ 把 asar 解出来真跑一遍引擎：路径写错、vendor 缺失都会在这里当场暴露
 {
   const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'cr-verify-'));
   try {
-    execFileSync('npx', ['asar', 'extract', ASAR, tmp], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    extractAsar(ASAR, tmp);
     const enginePath = path.join(tmp, 'src/features/safari-repair/engine.js');
     const mod = require(enginePath);
     const engine = new mod.GlyphEngine({ log: () => {} });
