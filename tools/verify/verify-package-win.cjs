@@ -66,34 +66,56 @@ if (fs.existsSync(nodePath)) {
 }
 
 // ③ asar 内容
-let asarList = [];
-try {
-  asarList = execFileSync('npx', ['asar', 'list', ASAR], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
-    .split('\n').map((s) => s.trim()).filter(Boolean);
-} catch (e) {
-  console.log('  (无法读取 asar 列表:', e.message + ')');
+/**
+ * 读 asar 里的文件清单。
+ * 优先用 @electron/asar 的 API(跨平台、纯 JS);
+ * 兜底走命令行时**必须用 npx.cmd** —— Windows 上 npx 是 npx.cmd,
+ * 直接 spawn 'npx' 会 ENOENT(踩过:清单读不到 → 一堆检查假失败)。
+ */
+function listAsar(asarPath) {
+  try {
+    const asar = require('@electron/asar');
+    if (typeof asar.listPackage === 'function') {
+      return asar.listPackage(asarPath).map((p) => String(p).replace(/\\/g, '/'));
+    }
+  } catch (_) { /* 走命令行兜底 */ }
+  const cli = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  try {
+    return execFileSync(cli, ['asar', 'list', asarPath], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+      .split('\n').map((s) => s.trim()).filter(Boolean);
+  } catch (e) {
+    console.log('  (无法读取 asar 列表:', e.message + ')');
+    return null;
+  }
 }
-const needFiles = [
-  '/main.js',
-  '/preload.js',
-  '/win-input/index.js',
-  '/src/features/index.js',
-];
-for (const f of needFiles) {
-  check(`asar 内含 ${f}`, asarList.includes(f));
-}
-check('asar 内含前端产物', asarList.some((f) => f.startsWith('/dist/') && f.endsWith('index.html')));
 
-// ④ Windows 包里**不该有** macOS 的东西
-check('asar 内不含 macOS 原生模块', !asarList.some((f) => f.startsWith('/mac-coregraphics/')));
-check('asar 内不含参考库 vendor/', !asarList.some((f) => f.startsWith('/vendor/')));
-check('asar 内不含 Safari 修复模块', !asarList.some((f) => f.startsWith('/src/features/safari-repair/')));
-check('asar 内不含算法源码 packages/', !asarList.some((f) => f.startsWith('/packages/')));
-check('asar 内不含浏览器扩展 apps/', !asarList.some((f) => f.startsWith('/apps/')));
-check('asar 内不含 Tauri 源码', !asarList.some((f) => f.startsWith('/tauri-app/')));
-check('asar 内不含文档系统', !asarList.some((f) => f.startsWith('/docs/')));
-check('asar 内不含开发脚本', !asarList.some((f) => f.startsWith('/tools/')));
-check('asar 内不含功能自测目录', !asarList.some((f) => f.startsWith('/src/features/') && f.includes('/test/')));
+const asarList = listAsar(ASAR);
+if (asarList === null) {
+  // 读不到清单 → 下面的"含/不含"判断全都失去意义,必须当作失败
+  check('能读取 asar 清单', false, '清单读不到 → 内容检查无法进行');
+} else {
+  const needFiles = [
+    '/main.js',
+    '/preload.js',
+    '/win-input/index.js',
+    '/src/features/index.js',
+  ];
+  for (const f of needFiles) {
+    check(`asar 内含 ${f}`, asarList.includes(f));
+  }
+  check('asar 内含前端产物', asarList.some((f) => f.startsWith('/dist/') && f.endsWith('index.html')));
+
+  // ④ Windows 包里**不该有** macOS 的东西
+  check('asar 内不含 macOS 原生模块', !asarList.some((f) => f.startsWith('/mac-coregraphics/')));
+  check('asar 内不含参考库 vendor/', !asarList.some((f) => f.startsWith('/vendor/')));
+  check('asar 内不含 Safari 修复模块', !asarList.some((f) => f.startsWith('/src/features/safari-repair/')));
+  check('asar 内不含算法源码 packages/', !asarList.some((f) => f.startsWith('/packages/')));
+  check('asar 内不含浏览器扩展 apps/', !asarList.some((f) => f.startsWith('/apps/')));
+  check('asar 内不含 Tauri 源码', !asarList.some((f) => f.startsWith('/tauri-app/')));
+  check('asar 内不含文档系统', !asarList.some((f) => f.startsWith('/docs/')));
+  check('asar 内不含开发脚本', !asarList.some((f) => f.startsWith('/tools/')));
+  check('asar 内不含功能自测目录', !asarList.some((f) => f.startsWith('/src/features/') && f.includes('/test/')));
+}
 
 console.log(failed === 0 ? '\n✔ 打包产物自检全部通过' : `\n✖ ${failed} 项不通过`);
 process.exit(failed === 0 ? 0 : 1);
