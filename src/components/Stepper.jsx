@@ -17,6 +17,8 @@ export default function Stepper({
   disableStepIndicators = false,
   nextDisabled = false,
   renderStepIndicator,
+  /** 渲染在卡片右上角的内容(关闭按钮)。放在卡片**里面**,否则会落在面板外的空白处 */
+  corner = null,
   ...rest
 }) {
   const [currentStep, setCurrentStep] = useState(initialStep);
@@ -60,9 +62,12 @@ export default function Stepper({
       {...rest}
     >
       <div
-        className={`mx-auto w-full max-w-md rounded-4xl shadow-2xl ${stepCircleContainerClassName}`}
+        className={`relative mx-auto w-full max-w-md rounded-4xl shadow-2xl ${stepCircleContainerClassName}`}
         style={{ border: '1px solid #ddd', backgroundColor: '#fff' }}
       >
+        {corner ? (
+          <div className="app-nodrag absolute top-3 right-3 z-20">{corner}</div>
+        ) : null}
         <div className={`${stepContainerClassName} app-drag flex w-full items-center p-8`}>
           {stepsArray.map((_, index) => {
             const stepNumber = index + 1;
