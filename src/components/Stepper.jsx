@@ -62,7 +62,7 @@ export default function Stepper({
       {...rest}
     >
       <div
-        className={`relative mx-auto w-full rounded-4xl shadow-2xl ${stepCircleContainerClassName}`}
+        className={`relative mx-auto w-full rounded-4xl shadow-md ${stepCircleContainerClassName}`}
         style={{ border: '1px solid #ddd', backgroundColor: '#fff' }}
       >
         {corner ? (

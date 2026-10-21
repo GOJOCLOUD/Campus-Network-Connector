@@ -811,7 +811,9 @@ function createWindow() {
       : { frame: false }),
     transparent: true,
     backgroundColor: '#00000000',
-    hasShadow: true,
+    // 透明窗口上的原生阴影是一个方的框,叠在卡片下面会变成一整块深色;
+    // 阴影交给卡片自己的 shadow-md。
+    hasShadow: false,
     resizable: false,
     alwaysOnTop: true,
     show: false,
