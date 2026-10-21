@@ -18,10 +18,16 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-// 查找顺序:命令行参数 → 本地构建产物。
+// 查找顺序:命令行参数 → 本地构建产物(win-unpacked / win-x64-unpacked / win-arm64-unpacked ...)。
 const APP_CANDIDATES = [
   process.argv[2],
-  path.join(__dirname, '..', '..', 'release', 'win-unpacked'),
+  ...(() => {
+    const releaseDir = path.join(__dirname, '..', '..', 'release');
+    if (!fs.existsSync(releaseDir)) return [];
+    return fs.readdirSync(releaseDir)
+      .filter((d) => /^win.*-unpacked$/.test(d))
+      .map((d) => path.join(releaseDir, d));
+  })(),
 ].filter(Boolean);
 const APP = APP_CANDIDATES.find((p) => fs.existsSync(p)) || path.resolve(APP_CANDIDATES[0]);
 const ASAR = path.join(APP, 'resources', 'app.asar');
