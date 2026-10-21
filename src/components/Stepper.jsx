@@ -63,7 +63,7 @@ export default function Stepper({
         className={`mx-auto w-full max-w-md rounded-4xl shadow-2xl ${stepCircleContainerClassName}`}
         style={{ border: '1px solid #ddd', backgroundColor: '#fff' }}
       >
-        <div className={`${stepContainerClassName} flex w-full items-center p-8`}>
+        <div className={`${stepContainerClassName} app-drag flex w-full items-center p-8`}>
           {stepsArray.map((_, index) => {
             const stepNumber = index + 1;
             const isNotLastStep = index < totalSteps - 1;
@@ -99,13 +99,13 @@ export default function Stepper({
           isCompleted={isCompleted}
           currentStep={currentStep}
           direction={direction}
-          className={`space-y-2 px-8 text-gray-900 ${contentClassName}`}
+          className={`app-nodrag space-y-2 px-8 text-gray-900 ${contentClassName}`}
         >
           {stepsArray[currentStep - 1]}
         </StepContentWrapper>
 
         {!isCompleted && (
-          <div className={`px-8 pb-8 ${footerClassName}`}>
+          <div className={`app-nodrag px-8 pb-8 ${footerClassName}`}>
             <div className={`mt-10 flex ${currentStep !== 1 ? 'justify-between' : 'justify-end'}`}>
               {currentStep !== 1 && (
                 <button
@@ -227,7 +227,7 @@ function StepIndicator({ step, currentStep, onClickStep, disableStepIndicators =
   return (
     <motion.div
       onClick={handleClick}
-      className="relative cursor-pointer outline-none focus:outline-none"
+      className="app-nodrag relative cursor-pointer outline-none focus:outline-none"
       animate={status}
       initial={false}
     >

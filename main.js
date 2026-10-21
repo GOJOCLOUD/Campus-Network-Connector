@@ -802,10 +802,13 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 520,
     height: 640,
-    minWidth: 460,
-    minHeight: 560,
-    frame: true,
-    transparent: false,
+    // frame:false 去掉 macOS 自带的标题栏/窗口框 —— 用户看到的就是应用自己的白色面板。
+    // 代价:没有红黄绿按钮(自己加 ✕)、不能拖标题栏(面板顶部做拖拽区)。
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: true,
+    resizable: false,
     alwaysOnTop: true,
     show: false,
     webPreferences: {

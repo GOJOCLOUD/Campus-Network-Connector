@@ -9,6 +9,15 @@ button, input, textarea, select, a, [role="button"] {
   -webkit-app-region: no-drag;
 }
 
+/* 无边框窗口:靠拖动面板移动窗口 */
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-nodrag {
+  -webkit-app-region: no-drag;
+}
+
 @keyframes fade-in-out {
   0% {
     opacity: 0;
