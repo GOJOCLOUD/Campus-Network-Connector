@@ -24,21 +24,40 @@ node tools/lab/package-deliverables.cjs   # 桌面交付(两个 zip)
 
 ## 目录结构
 
+这个仓库有**两层**,各管一摊,互不越界:
+
+- **应用层** —— 桌面 App 本身(模拟输入 / 输入源切换 / 激活授权 / Safari 复制修复)
+- **算法层** —— 2026-10-21 由原「浏览器修复」算法仓并入(copy-repair),本身是 monorepo 形状
+
+### 应用层
+
 | 路径 | 内容 | 进安装包 |
 | --- | --- | --- |
 | `src/` | 前端(React/Vite) | ✅ |
 | `src/features/` | **功能模块**,每个功能一个自包含目录 | ✅(测试除外) |
 | `main.js` `preload.js` | 主进程 / 预加载 | ✅ |
 | `mac-coregraphics/` | 原生模块(CoreGraphics,仅 macOS) | ✅(必须解包) |
+| `backend/` | 运行期数据(输入源配置、激活标记) | ✅ |
 | `vendor/` | 运行时依赖(参考字形库、字体解析器、注入脚本) | ✅ |
-| `backend/` `electron/` `build/` | 后端脚本、构建配置 | ❌ |
+| `electron/` `build/` | 打包钩子、图标 | ❌ |
+
+### 算法层
+
+| 路径 | 内容 | 进安装包 |
+| --- | --- | --- |
 | `packages/` | **算法核心** `core/` + **浏览器适配** `browser-adapters/`(TypeScript) | ❌(只有 `vendor/` 里的产物进包) |
 | `apps/` | Chromium / Safari 扩展(辅助形态) | ❌ |
 | `tests/` | 跨浏览器端到端测试与测试页夹具 | ❌ |
-| `docs/` | **文档系统** | ❌ |
 | `tools/` | 构建脚本 + `lab/` 实验 + `verify/` 校验 | ❌ |
-| `release/` `dist/` | 产品侧构建产物 | — |
-| `release-core/` `dist-core/` | 算法侧构建产物 | — |
+| `docs/` | **文档系统** | ❌ |
+
+### 构建产物(不进版本库)
+
+| 路径 | 内容 |
+| --- | --- |
+| `dist/` `release/` | 产品侧(vite / electron-builder) |
+| `dist-core/` `release-core/` | 算法侧(扩展) |
+| `vendor/` | `npm run build:vendor` 生成;参考库缺失会自动重建(约 5 秒) |
 
 ## 功能模块怎么加
 
@@ -95,4 +114,5 @@ node tools/verify/verify-app-e2e.cjs       # 真实端到端(读系统剪贴板�
 
 ## 交接
 
-[HANDOFF.md](HANDOFF.md) —— 之前的交接文案(历史资料)。
+- [项目记忆](docs/00-概览/项目记忆.md) —— 这个项目经历过什么、为什么长这样(架构演变与关键决策)
+- [历史交接快照](docs/00-概览/历史交接快照.md) —— 2026-10-21 之前的交接文案(已过时,保留追溯)
