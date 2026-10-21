@@ -27,6 +27,11 @@ function App() {
   const [selectedFile, setSelectedFile] = useState('')
   const [newFileName, setNewFileName] = useState('')
   const [pinyinCountdown, setPinyinCountdown] = useState(0)
+  // 功能模块清单（新增功能自动出现，前端不用改）
+  const [featureList, setFeatureList] = useState([])
+  const [featureStatus, setFeatureStatus] = useState({})
+  // 原生模块（模拟输入 / 输入源切换 / 录制回放）是否可用
+  const [nativeStatus, setNativeStatus] = useState(null)
 
   const [deviceUuid, setDeviceUuid] = useState('')
   const [activationCode, setActivationCode] = useState('')
@@ -74,6 +79,88 @@ function App() {
 开发者可在不另行通知的情况下更新本协议。你继续使用即视为接受更新后的协议。
 `
   }, [])
+
+  // 功能模块：拉清单 + 轮询状态
+  const refreshFeatures = useMemo(() => async () => {
+    try {
+      if (!cnc.getFeatures) return;
+      const list = await cnc.getFeatures();
+      if (!Array.isArray(list)) return;
+      setFeatureList(list);
+      const statuses = {};
+      for (const f of list) {
+        try {
+          const st = await cnc.getFeatureStatus(f.prefix);
+          statuses[f.id] = st || null;
+        } catch (_) {}
+      }
+      setFeatureStatus(statuses);
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    refreshFeatures();
+    const timer = setInterval(refreshFeatures, 3000);
+    return () => clearInterval(timer);
+  }, [refreshFeatures]);
+
+  // 原生模块状态：加载失败时明确告知，而不是让按钮静默失灵
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        if (!cnc.getNativeStatus) return;
+        const st = await cnc.getNativeStatus();
+        if (alive) setNativeStatus(st || null);
+      } catch (_) {}
+    };
+    load();
+    const timer = setInterval(load, 5000);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
+
+  const toggleFeature = async (prefix, next) => {
+    try {
+      if (cnc.setFeatureEnabled) cnc.setFeatureEnabled(prefix, next);
+      if (cnc.setFeatureEnabledSetting) cnc.setFeatureEnabledSetting(prefix, next);
+    } catch (_) {}
+    setTimeout(refreshFeatures, 400);
+  };
+
+  // 功能开关区（第 4 页）—— 由功能清单驱动，新增功能自动出现，无需改前端
+  const renderFeatureToggles = () => (
+    <>
+      {featureList.map((f) => {
+        const st = featureStatus[f.id]
+        if (st && st.supported === false) return null
+        const on = !!(st && st.enabled)
+        const stateText = !st
+          ? ''
+          : !on
+            ? '关闭中'
+            : st.injected
+              ? '已接管'
+              : '已开启'
+        return (
+          <div key={f.id} className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className="font-medium">{f.title}</span>
+                <span className="ml-2 text-xs">
+                  {stateText ? stateText + '：' : ''}
+                  {f.description}
+                </span>
+              </div>
+              <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFeature(f.prefix, !on) }}
+                className={'shrink-0 font-medium py-1.5 px-4 rounded-lg transition duration-300 active:scale-95 transform ' + (on ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md' : 'bg-gray-200 hover:bg-gray-300 text-gray-600')}>
+                {on ? '关闭' : '开启'}
+              </button>
+            </div>
+          </div>
+        )
+      })}
+    </>
+  )
 
   const getLocal = (k, fallback = '') => {
     try {
@@ -142,11 +229,6 @@ function App() {
     const t = setInterval(() => { refreshActivationStatus() }, 1000)
     return () => clearInterval(t)
   }, [])
-
-  const readClipboardText = async () => {
-    try { if (cnc.clipboardReadText) return (cnc.clipboardReadText() || '').trim() } catch (_) {}
-    try { const t = await navigator.clipboard.readText(); return (t || '').trim() } catch (_) { return '' }
-  }
 
   const requestPinyinInput = (text) => {
     const t = (text || '').trim()
@@ -443,10 +525,19 @@ function App() {
     }
   }
 
-  defaultExecuteRef.current = handleDefaultExecute
+  // ref 只在事件里读，赋值放到 effect 里（render 期写 ref 是 React 禁止的）
+  useEffect(() => {
+    defaultExecuteRef.current = handleDefaultExecute
+  })
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center">
+      {nativeStatus && nativeStatus.ok === false && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white text-sm px-4 py-2 shadow">
+          模拟输入相关功能不可用：原生模块加载失败（{nativeStatus.error || '未知原因'}）。
+          请重新安装最新版安装包。
+        </div>
+      )}
       <Stepper
         key={isActivated ? 'active' : 'inactive'}
         initialStep={isActivated ? 2 : 1}
@@ -689,6 +780,7 @@ function App() {
 
         <Step>
           <h2>键盘输入</h2>
+          {renderFeatureToggles()}
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-2">输入完成前不要尝试操作电脑，否则可能导致电脑死机（强制重启可以解决）</p>
           <div className="relative w-full mb-3">
             <textarea

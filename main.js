@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, clipboard } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, clipboard } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -7,7 +7,38 @@ const { execFileSync } = require('child_process');
 const nacl = require('tweetnacl');
 
 // ── Native CoreGraphics addon ──
-const mac = require('./mac-coregraphics');
+// 原生模块（CoreGraphics）只在 macOS 上存在。必须**按平台加载**：
+// 在 Windows 上 require 会直接抛错，会让整个主进程起不来（App 白屏/闪退）。
+let mac = null;
+/** 原生模块加载失败的原因（界面要显示出来 —— 静默失效比崩溃更难查） */
+let nativeModuleError = '';
+if (process.platform === 'darwin') {
+  try {
+    mac = require('./mac-coregraphics');
+    if (!mac || typeof mac.mouseClick !== 'function') {
+      throw new Error('原生模块没有导出预期的方法');
+    }
+  } catch (error) {
+    nativeModuleError = String(error && error.message ? error.message : error);
+    console.error('[native] 加载 mac-coregraphics 失败:', nativeModuleError);
+    mac = null;
+  }
+}
+
+/** 调用原生能力：当前平台不支持时安静返回 null，不让整个 App 崩掉。 */
+function nativeCall(name, ...args) {
+  if (!mac || typeof mac[name] !== 'function') {
+    console.warn(`[native] ${name} 在当前平台(${process.platform})不可用`);
+    return null;
+  }
+  try {
+    return mac[name](...args);
+  } catch (error) {
+    console.error(`[native] ${name} 调用失败:`, error && error.message);
+    return null;
+  }
+}
+const { loadFeatures } = require('./src/features');
 
 // ── Paths ──
 const LEGACY_BACKEND_DIR = path.join(__dirname, 'backend');
@@ -35,6 +66,11 @@ let pinyinTextSetting = '';
 let pinyinSourcesSetting = { button: 'textbox', shortcut: 'clipboard' };
 let autoSwitchImeSetting = true;
 let keepaliveEnabledSetting = true;
+// 各功能的设置（命名空间隔离）：features.<功能名>.<键>
+// 新增功能直接往自己的命名空间里写，互不干扰。
+let featureSettings = {};
+/** 已加载的功能实例（由 src/features/index.js 的注册表管理） */
+let features = null;
 let keepaliveTimer = null;
 
 // ── Single Instance Lock ──
@@ -66,6 +102,16 @@ function loadSettings() {
     };
     autoSwitchImeSetting = typeof data.autoSwitchIme === 'boolean' ? data.autoSwitchIme : true;
     keepaliveEnabledSetting = typeof data.keepaliveEnabled === 'boolean' ? data.keepaliveEnabled : true;
+    // 功能设置：优先用新的 features 命名空间；旧版扁平键自动迁移过来
+    featureSettings = (data.features && typeof data.features === 'object') ? { ...data.features } : {};
+    if (data.safariRepairEnabled !== undefined) {
+      const ns = (featureSettings['safari-repair'] = featureSettings['safari-repair'] || {});
+      if (ns.enabled === undefined) ns.enabled = data.safariRepairEnabled === true;
+    }
+    if (Array.isArray(data.safariRepairWatched)) {
+      const ns = (featureSettings['safari-repair'] = featureSettings['safari-repair'] || {});
+      if (!Array.isArray(ns.watched)) ns.watched = data.safariRepairWatched.map(String);
+    }
   } catch (_) {}
 }
 
@@ -79,6 +125,7 @@ function saveSettings() {
       pinyinSources: pinyinSourcesSetting,
       autoSwitchIme: autoSwitchImeSetting,
       keepaliveEnabled: keepaliveEnabledSetting,
+      features: featureSettings,
     }, null, 2), 'utf-8');
   } catch (_) {}
 }
@@ -457,12 +504,12 @@ async function playClicks(clicks, interval, inputs) {
 
   for (let i = 0; i < clicks.length; i++) {
     const c = clicks[i];
-    mac.mouseClick(c.x, c.y);
+    nativeCall('mouseClick', c.x, c.y);
     await sleepMs(100);
 
     if (perClickInputs && perClickInputs[i]) {
       await sleepMs(100);
-      mac.sendText(perClickInputs[i]);
+      nativeCall('sendText', perClickInputs[i]);
     }
 
     if (i < clicks.length - 1) {
@@ -478,7 +525,7 @@ async function pinyinType(text, delaySeconds = 3, autoSwitchIme = false) {
     // Switch to ASCII input source if configured
     const config = readInputSourceConfig();
     if (config.ascii_id) {
-      mac.selectInputSource(config.ascii_id);
+      nativeCall('selectInputSource', config.ascii_id);
     }
     await sleepMs(300);
   }
@@ -487,7 +534,7 @@ async function pinyinType(text, delaySeconds = 3, autoSwitchIme = false) {
     await sleepMs(delaySeconds * 1000);
   }
 
-  mac.sendText(text);
+  nativeCall('sendText', text);
 }
 
 // ── IPC Handlers ──
@@ -525,6 +572,7 @@ ipcMain.on('settings:setAutoSwitchIme', (_e, enabled) => {
 
 // Keepalive
 ipcMain.handle('keepalive:getStatus', async () => keepaliveEnabledSetting);
+
 ipcMain.on('keepalive:setEnabled', (_e, enabled) => {
   keepaliveEnabledSetting = !!enabled;
   saveSettings();
@@ -567,32 +615,39 @@ ipcMain.handle('activation:migrateLegacy', async (_e, legacy) => {
 });
 
 // Mouse click
+/** 原生模块状态：界面据此提示"模拟输入不可用"，而不是让按钮静默失灵 */
+ipcMain.handle('native:getStatus', async () => ({
+  ok: !!mac,
+  error: nativeModuleError,
+  platform: process.platform,
+}));
+
 ipcMain.handle('native:mouseClick', async (_e, x, y) => {
-  return mac.mouseClick(x, y);
+  return nativeCall('mouseClick', x, y);
 });
 
 // Mouse position
 ipcMain.handle('native:mouseGetPosition', async () => {
-  return mac.mouseGetPosition();
+  return nativeCall('mouseGetPosition', );
 });
 
 // Send text
 ipcMain.handle('native:sendText', async (_e, text) => {
-  return mac.sendText(String(text || ''));
+  return nativeCall('sendText', String(text || ''));
 });
 
 // Send key
 ipcMain.handle('native:sendKey', async (_e, keyCode, flags) => {
-  return mac.sendKey(keyCode, flags || 0);
+  return nativeCall('sendKey', keyCode, flags || 0);
 });
 
 // Input source
 ipcMain.handle('native:getCurrentInputSource', async () => {
-  return mac.getCurrentInputSource();
+  return nativeCall('getCurrentInputSource', );
 });
 
 ipcMain.handle('native:selectInputSource', async (_e, sourceId) => {
-  return mac.selectInputSource(String(sourceId || ''));
+  return nativeCall('selectInputSource', String(sourceId || ''));
 });
 
 // Input source config (saved in backend/input_source_config.json)
@@ -610,7 +665,7 @@ ipcMain.handle('native:saveInputSourceConfig', async (_e, config) => {
 });
 
 ipcMain.handle('native:setCurrentAsInputSource', async (_e, role) => {
-  const info = mac.getCurrentInputSource();
+  const info = nativeCall('getCurrentInputSource', );
   if (!info.id) return { status: 'error', message: '无法读取当前输入源 ID' };
   const config = readInputSourceConfig();
   if (role === 'ascii') config.ascii_id = info.id;
@@ -623,7 +678,7 @@ ipcMain.handle('native:setCurrentAsInputSource', async (_e, role) => {
 // Recording
 ipcMain.handle('native:startRecording', async (_e, excludeRect) => {
   try {
-    mac.startRecording(excludeRect || [0, 0, 0, 0]);
+    nativeCall('startRecording', excludeRect || [0, 0, 0, 0]);
     return true;
   } catch (e) {
     return { error: e.message };
@@ -631,27 +686,27 @@ ipcMain.handle('native:startRecording', async (_e, excludeRect) => {
 });
 
 ipcMain.handle('native:stopRecording', async () => {
-  mac.stopRecording();
-  const clicks = mac.getRecordingClicks();
-  mac.clearRecordingClicks();
+  nativeCall('stopRecording', );
+  const clicks = nativeCall('getRecordingClicks', );
+  nativeCall('clearRecordingClicks', );
   return Array.isArray(clicks) ? clicks : [];
 });
 
 ipcMain.handle('native:getRecordingClicks', async () => {
-  return mac.getRecordingClicks();
+  return nativeCall('getRecordingClicks', );
 });
 
 ipcMain.handle('native:clearRecordingClicks', async () => {
-  mac.clearRecordingClicks();
+  nativeCall('clearRecordingClicks', );
   return true;
 });
 
 ipcMain.handle('native:isRecording', async () => {
-  return mac.isRecording();
+  return nativeCall('isRecording', );
 });
 
 ipcMain.handle('native:tapFailed', async () => {
-  return mac.tapFailed();
+  return nativeCall('tapFailed', );
 });
 
 // File management
@@ -702,7 +757,7 @@ ipcMain.handle('file:readFile', async (_e, filename) => {
   try {
     const data = fs.readFileSync(path.join(RECORDINGS_DIR(), filename), 'utf-8');
     return JSON.parse(data);
-  } catch (e) {
+  } catch (_) {
     return null;
   }
 });
@@ -824,17 +879,47 @@ app.on('ready', () => {
   createWindow();
   registerShortcuts();
   startKeepalive();
+  initFeatures();
 });
+
+// ── Safari 复制修复 ──
+function initFeatures() {
+  try {
+    features = loadFeatures({
+      app,
+      ipcMain,
+      log: (m) => console.log('[feature]', m),
+      settings: {
+        // 取某个功能的命名空间
+        namespace: (id) => (featureSettings[id] = featureSettings[id] || {}),
+        // 写某个功能的某个键并落盘
+        setNamespace: (id, key, value) => {
+          featureSettings[id] = featureSettings[id] || {};
+          featureSettings[id][key] = value;
+          saveSettings();
+        },
+      },
+    });
+    console.log('[feature] 已初始化:', JSON.stringify(features.list()));
+  } catch (error) {
+    console.log('[feature] 初始化失败:', error);
+  }
+}
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
 app.on('window-all-closed', () => {
-  app.quit();
+  // macOS 惯例：关掉窗口 App 继续在后台运行。
+  // 「Safari 复制修复」是**常驻能力**（要一直盯着浏览器、随时接管复制），
+  // 如果关窗口就退出，等于用户随手一点就把功能关掉了 —— 实测会表现为
+  // 「复制完全不修复」。Dock 图标还在，随时可以点回来开窗口。
+  if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', () => {
   try { globalShortcut.unregisterAll(); } catch (_) {}
   stopKeepalive();
+  try { features?.disposeAll(); } catch (_) {}
 });

@@ -69,4 +69,21 @@ contextBridge.exposeInMainWorld('cnc', {
   // Keepalive
   getKeepaliveStatus() { return ipcRenderer.invoke('keepalive:getStatus'); },
   setKeepaliveEnabled(enabled) { ipcRenderer.send('keepalive:setEnabled', !!enabled); },
+
+  // 原生模块状态（模拟输入等能力是否可用）
+  getNativeStatus() { return ipcRenderer.invoke('native:getStatus'); },
+
+  // 功能模块（通用接口；新增功能前端不用改）
+  getFeatures() { return ipcRenderer.invoke('features:list'); },
+  getFeatureStatus(prefix) { return ipcRenderer.invoke(prefix + ':getStatus'); },
+  setFeatureEnabled(prefix, enabled) { ipcRenderer.send(prefix + ':setEnabled', !!enabled); },
+  setFeatureEnabledSetting(prefix, enabled) { ipcRenderer.send(prefix + ':setEnabledSetting', !!enabled); },
+
+  // Safari 复制修复（字体混淆还原 + 复制劫持拦截）
+  safariRepair: {
+    getStatus() { return ipcRenderer.invoke('safariRepair:getStatus'); },
+    setEnabled(enabled) { ipcRenderer.send('safariRepair:setEnabled', !!enabled); },
+    setEnabledSetting(enabled) { ipcRenderer.send('safariRepair:setEnabledSetting', !!enabled); },
+    checkNow() { return ipcRenderer.invoke('safariRepair:checkNow'); },
+  },
 });
