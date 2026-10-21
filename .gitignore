@@ -48,3 +48,8 @@ release-core
 # 算法仓合并进来后的构建产物（都能用 npm run build:* 重建，不入库）
 vendor/
 tools/reference-fonts/*.crdb
+
+# Tauri 版(Rust)构建产物
+tauri-app/src-tauri/target
+tauri-app/node_modules
+tauri-app/dist

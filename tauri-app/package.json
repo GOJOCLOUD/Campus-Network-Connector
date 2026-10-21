@@ -1,0 +1,15 @@
+{
+  "name": "simuinput-tauri",
+  "private": true,
+  "version": "0.0.0",
+  "description": "模拟输入 · Tauri 版（与仓库根目录的 Electron 版并存）",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "check": "cargo run --release --bin glyph-check --"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.6"
+  }
+}
