@@ -4,11 +4,13 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - win
+      - windows
 
 jobs:
   build-win:
-    runs-on: windows-latest
+    # windows-2022:node-gyp 在 VS2026(windows-latest 现在指向 windows-2025-vs2026)上
+    # 找不到匹配的工具链,构建会失败 —— 这条线固定用 windows-2022。
+    runs-on: windows-2022
     permissions:
       contents: write
     steps:
@@ -18,7 +20,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Electron 41 内置 Node 22;Actions 上的 Node 20 已进入退役期
+          node-version: 22
           cache: npm
 
       - name: Install npm dependencies
@@ -26,6 +29,12 @@ jobs:
 
       - name: Build native addon + renderer + NSIS installer
         run: npm run dist:win
+
+      # 硬门禁:原生模块必须解包且能加载。
+      # 这一条拦的是"装上之后 App 起不来"的老坑(原生模块被塞进 asar,
+      # 顶层 require 直接抛错 → 主进程崩溃),见 ADR-0003。
+      - name: Verify packaged app
+        run: node tools/verify/verify-package-win.cjs
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

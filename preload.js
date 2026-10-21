@@ -80,11 +80,6 @@ contextBridge.exposeInMainWorld('cnc', {
   setFeatureEnabled(prefix, enabled) { ipcRenderer.send(prefix + ':setEnabled', !!enabled); },
   setFeatureEnabledSetting(prefix, enabled) { ipcRenderer.send(prefix + ':setEnabledSetting', !!enabled); },
 
-  // Safari 复制修复（字体混淆还原 + 复制劫持拦截）
-  safariRepair: {
-    getStatus() { return ipcRenderer.invoke('safariRepair:getStatus'); },
-    setEnabled(enabled) { ipcRenderer.send('safariRepair:setEnabled', !!enabled); },
-    setEnabledSetting(enabled) { ipcRenderer.send('safariRepair:setEnabledSetting', !!enabled); },
-    checkNow() { return ipcRenderer.invoke('safariRepair:checkNow'); },
-  },
+  // 注意:Safari 复制修复走 Apple Events,只在 macOS 上存在 —— Windows 版
+  // 没有这个能力,所以不暴露这组接口(免得调用方拿到一个必然失败的 Promise)。
 });

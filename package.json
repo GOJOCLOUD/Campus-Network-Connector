@@ -5,22 +5,19 @@
   "type": "commonjs",
   "main": "main.js",
   "scripts": {
-    "build:native": "mkdir -p mac-coregraphics/build/Release && clang++ -std=c++17 -fexceptions -ObjC++ -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk -I node_modules/node-addon-api -I /opt/homebrew/include/node -framework CoreGraphics -framework Carbon -framework Foundation -undefined dynamic_lookup -dynamiclib -o mac-coregraphics/build/Release/mac-coregraphics.node mac-coregraphics/src/main.mm",
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "electron": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "electron:build": "npm run build && npm run build:native && npm run build:vendor && env -u ELECTRON_RUN_AS_NODE electron .",
-    "dist:mac:arm64": "npm run build && npm run build:native && npm run build:vendor && npx electron-builder --mac dir --arm64 --publish never",
-    "dist:mac": "npm run build && npm run build:native && npm run build:vendor && npx electron-builder --mac dir --publish never",
-    "dist:win": "npm run build && npm run build:vendor && npx electron-builder --win --x64 --publish never",
+    "electron:build": "npm run build && npm run build:win-native && env -u ELECTRON_RUN_AS_NODE electron .",
+    "build:win-native": "node-gyp rebuild --directory=win-input",
+    "dist:win": "npm run build && npm run build:win-native && npx electron-builder --win --x64 --publish never",
     "test": "node --test --test-concurrency=1 src/features/safari-repair/test/*.cjs",
-    "build:vendor": "node tools/build-vendor.mjs",
-    "build:reference-db": "CR_INCLUDE_GBK=1 node tools/build-reference-db.mjs --size 48 --out tools/reference-fonts/glyph-db-48-gbk.crdb",
     "build:core": "node tools/build.mjs",
     "test:core": "node --test packages/core/test/*.test.ts",
-    "test:e2e": "node --test tests/e2e/*.test.ts"
+    "test:e2e": "node --test tests/e2e/*.test.ts",
+    "verify:package": "node tools/verify/verify-package-win.cjs"
   },
   "dependencies": {
     "tweetnacl": "^1.0.3"
@@ -34,6 +31,7 @@
     "@vitejs/plugin-react": "^6.0.0",
     "autoprefixer": "^10.4.27",
     "electron": "^41.0.1",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.4",
     "eslint-plugin-react": "^7.37.5",
@@ -41,6 +39,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "node-addon-api": "^8.3.1",
+    "node-gyp": "^11.5.0",
     "opentype.js": "^2.0.0",
     "postcss": "^8.5.8",
     "puppeteer": "^25.14.0",
@@ -72,37 +71,29 @@
       "main.js",
       "preload.js",
       "backend/**/*",
-      "mac-coregraphics/**/*.node",
-      "mac-coregraphics/index.js",
-      "package.json",
-      "vendor/**/*",
-      "src/features/**/*",
-      "!src/features/**/test/**/*",
-      "!docs/**/*",
-      "!tools/**/*",
-      "!packages/**/*",
-      "!apps/**/*",
-      "!tests/**/*",
-      "!**/*.md"
+      "win-input/**/*.node",
+      "win-input/index.js",
+      "src/features/index.js",
+      "package.json"
     ],
     "afterPack": "electron/after-pack.cjs",
-    "mac": {
-      "icon": "build/app-icon.png",
-      "target": [
-        "dir"
-      ],
-      "identity": null,
-      "artifactName": "CampusNetworkConnector-mac-${version}.${ext}"
-    },
     "win": {
-      "icon": "build/win-icon.png",
+      "icon": "build/win-icon.ico",
       "target": [
         "nsis"
       ],
       "artifactName": "CampusNetworkConnector-win-${version}.${ext}"
     },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "unicode": true,
+      "installerIcon": "build/win-icon.ico",
+      "shortcutName": "模拟输入"
+    },
     "asarUnpack": [
-      "mac-coregraphics/**"
+      "win-input/**"
     ],
     "electronLanguages": [
       "zh_CN",

@@ -12,6 +12,10 @@ import { USER_AGREEMENT_MD, TRIAL_SECONDS } from './lib/user-agreement'
 const cnc = window.cnc || {};
 // macOS 用原生红绿灯,其它平台才需要自绘关闭按钮
 const isMac = cnc.platform === 'darwin';
+// Windows 版是**精简版**:只保留「激活 + 默认执行(回放/挑文件)」。
+// 录制(ClickPanel)和快捷输入(KeyboardPanel)都依赖 macOS 原生能力
+// (CoreGraphics 事件监听 / 输入源切换),在 Windows 上跑不通也不需要,故不出现。
+const isWindows = cnc.platform === 'win32';
 
 function App() {
   const [name, setName] = useState('')
@@ -228,7 +232,7 @@ function App() {
         e.preventDefault()
         defaultExecuteRef.current()
       }
-      if (e.ctrlKey && e.shiftKey && e.code === 'KeyD') {
+      if (e.ctrlKey && e.shiftKey && e.code === 'KeyD' && !isWindows) {
         e.preventDefault()
         setMessage('读取剪贴板中...')
         setTimeout(() => setMessage(''), 2000)
@@ -516,6 +520,12 @@ function App() {
     filesLoading,
     jsonFiles,
     onSelectFile: (name) => { setSelectedJson(name); setShowJsonDropdown(false) },
+    // Windows 上没有录制界面 → 把「管理录制文件」的入口挂在这一步
+    showManage: isWindows,
+    isManageMode,
+    onManage: handleManage,
+    onRename: handleRename,
+    onDelete: handleDelete,
   }
 
   const clickPanelProps = {
@@ -587,6 +597,7 @@ function App() {
         nextButtonText="下一步"
         disableStepIndicators={!isActivated}
         nextDisabled={!isActivated}
+        hideCompleteButton={isWindows}
         corner={
           /* macOS 用原生红绿灯(见 main.js 的 titleBarStyle/trafficLightPosition),
              这里只给没有原生按钮的平台兜底 */
@@ -611,13 +622,19 @@ function App() {
           <DefaultExecutePanel {...defaultExecutePanelProps} />
         </Step>
 
-        <Step>
-          <ClickPanel {...clickPanelProps} />
-        </Step>
+        {/* 以下两步是 macOS 专属:录制要事件监听,快捷输入要切换输入源。
+            Windows 版到「默认执行」为止,少两个界面但功能不缺。 */}
+        {!isWindows && (
+          <Step>
+            <ClickPanel {...clickPanelProps} />
+          </Step>
+        )}
 
-        <Step>
-          <KeyboardPanel {...keyboardPanelProps} />
-        </Step>
+        {!isWindows && (
+          <Step>
+            <KeyboardPanel {...keyboardPanelProps} />
+          </Step>
+        )}
       </Stepper>
 
 <RenameDialog {...renameDialogProps} />
