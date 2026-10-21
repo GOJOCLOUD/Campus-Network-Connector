@@ -1,7 +1,12 @@
 /**
  * 第 2 步:默认执行 + 选择录制文件。
+ *
+ * Windows 版**只有这两步**(激活 + 默认执行):录制和快捷输入是 macOS 专属能力,
+ * 在 Windows 上既用不上也跑不通,所以那边不出现这两个界面。
+ * Windows 上「管理录制文件」的入口挂在这里 —— 录制文件本身仍然要能挑/能改/能删。
  */
 import { createPortal } from 'react-dom'
+import ManageFilesPanel from './ManageFilesPanel'
 
 export default function DefaultExecutePanel({
   isExecuting,
@@ -15,7 +20,24 @@ export default function DefaultExecutePanel({
   filesLoading,
   jsonFiles,
   onSelectFile,
+  showManage = false,
+  isManageMode = false,
+  onManage,
+  onRename,
+  onDelete,
 }) {
+  // 管理视图:Windows 上从这一步进入(macOS 上从「模拟点击」那一步进入)
+  if (showManage && isManageMode) {
+    return (
+      <ManageFilesPanel
+        jsonFiles={jsonFiles}
+        onRename={onRename}
+        onDelete={onDelete}
+        onBack={onManage}
+      />
+    )
+  }
+
   return (
       <div className="flex flex-col space-y-2">
         <div className="flex items-center space-x-3">
@@ -55,7 +77,14 @@ export default function DefaultExecutePanel({
               document.body
             )}
           </div>
+          {showManage && (
+            <button
+              type="button"
+              onClick={onManage}
+              className="bg-gray-500 hover:bg-gray-600 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform"
+            >管理</button>
+          )}
         </div>
       </div>
-  )
+    )
 }

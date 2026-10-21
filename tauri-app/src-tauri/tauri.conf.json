@@ -20,9 +20,16 @@
         "minHeight": 560,
         "resizable": true,
         "alwaysOnTop": true,
-        "decorations": false,
+        "decorations": true,
         "transparent": true,
-        "shadow": false
+        "shadow": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 12
+        },
+        "acceptFirstMouse": true
       }
     ],
     "security": {
@@ -32,14 +39,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns"
     ],
-    "resources": ["resources/glyph-db-48.crdb.gz"],
+    "resources": [
+      "resources/glyph-db-48.crdb.gz"
+    ],
     "macOS": {
       "minimumSystemVersion": "11.0"
     }

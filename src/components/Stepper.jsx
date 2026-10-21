@@ -16,6 +16,12 @@ export default function Stepper({
   nextButtonText = 'Continue',
   disableStepIndicators = false,
   nextDisabled = false,
+  /**
+   * 最后一步**不显示**「Complete」按钮。
+   * Windows 版的最后一步就是主操作界面(默认执行),再点一次「完成」会把
+   * 整个面板收起 —— 那一屏消失就没法操作了,所以那边把这个按钮去掉。
+   */
+  hideCompleteButton = false,
   renderStepIndicator,
   /** 渲染在卡片右上角的内容(关闭按钮)。放在卡片**里面**,否则会落在面板外的空白处 */
   corner = null,
@@ -125,18 +131,20 @@ export default function Stepper({
                   {backButtonText}
                 </button>
               )}
-              <button
-                onClick={nextDisabled ? undefined : (isLastStep ? handleComplete : handleNext)}
-                disabled={nextDisabled}
-                className={`duration-350 flex items-center justify-center rounded-full py-1.5 px-3.5 font-medium tracking-tight text-white transition ${
-                  nextDisabled
-                    ? 'bg-gray-300 cursor-not-allowed'
-                    : 'bg-green-500 hover:bg-green-600 active:bg-green-700'
-                }`}
-                {...nextButtonProps}
-              >
-                {isLastStep ? 'Complete' : nextButtonText}
-              </button>
+              {!(hideCompleteButton && isLastStep) && (
+                <button
+                  onClick={nextDisabled ? undefined : (isLastStep ? handleComplete : handleNext)}
+                  disabled={nextDisabled}
+                  className={`duration-350 flex items-center justify-center rounded-full py-1.5 px-3.5 font-medium tracking-tight text-white transition ${
+                    nextDisabled
+                      ? 'bg-gray-300 cursor-not-allowed'
+                      : 'bg-green-500 hover:bg-green-600 active:bg-green-700'
+                  }`}
+                  {...nextButtonProps}
+                >
+                  {isLastStep ? 'Complete' : nextButtonText}
+                </button>
+              )}
             </div>
           </div>
         )}

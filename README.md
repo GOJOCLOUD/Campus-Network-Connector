@@ -4,6 +4,23 @@ macOS 常驻桌面工具:**在别的 App 里代替你操作**(模拟点击 / 输
 **录制并回放操作序列**,以及一个可选增强能力:**Safari 复制修复**
 —— 让被网页字体混淆过的文字,复制出来就是屏幕上你看到的那句话。
 
+## 两条发布线:平台各打各的包
+
+| 线 | 分支 | 产物 | 原生模块 | 界面步骤 |
+| --- | --- | --- | --- | --- |
+| macOS | `main` | DMG | `mac-coregraphics`(CoreGraphics) | 激活 → 默认执行 → 模拟点击 → 键盘输入 |
+| Windows | `windows` | NSIS exe | `win-input`(Win32) | 激活 → 默认执行 |
+
+**两个平台不共用一个打包入口**:各自分支、各自的 `package.json` 打包配置、各自的
+GitHub Actions workflow。macOS 的包不含任何 Windows 专属的东西,Windows 的包也不含
+macOS 专属的东西(Safari 复制修复走 Apple Events,只有 macOS 有)。
+
+Windows 上**没有「模拟点击(录制)」和「键盘输入(快捷输入)」**——它们依赖 macOS 原生能力
+(全局事件监听 / 输入源切换),在 Windows 上跑不通,业务上也不需要;录制文件的
+挑选 / 重命名 / 删除保留在「默认执行」这一步的「管理」入口里。
+
+> 旧的 `win` 分支已废弃:代码停在 2026-07 之前,原生模块还塞在 asar 里(装上就崩)。
+
 ## 快速上手
 
 ```bash
@@ -17,7 +34,6 @@ npm run electron       # 开发模式启动
 
 ```bash
 npm run dist:mac:arm64                    # → release/mac-arm64/模拟输入.app
-npm run dist:win                          # → release/*.exe
 node tools/verify/verify-package.cjs      # 产物自检(必做)
 node tools/lab/package-deliverables.cjs   # 桌面交付(两个 zip)
 ```
@@ -40,6 +56,8 @@ node tools/lab/package-deliverables.cjs   # 桌面交付(两个 zip)
 | `backend/` | 运行期数据(输入源配置、激活标记) | ✅ |
 | `vendor/` | 运行时依赖(参考字形库、字体解析器、注入脚本) | ✅ |
 | `electron/` `build/` | 打包钩子、图标 | ❌ |
+
+> Windows 线(`windows` 分支)对应的是 `win-input/`(Win32 插件),`vendor/` 不进那个包。
 
 ### 算法层
 
@@ -73,12 +91,14 @@ src/features/<功能名>/index.js
 
 现有功能:
 
-| 功能 | 说明 |
-| --- | --- |
-| 模拟输入 | 鼠标点击 / 发送文本 / 按键 / 录制回放(原生模块) |
-| 输入源切换 | 读当前输入源 / 切换 / 设为当前 |
-| 激活授权 | 机器指纹 + 授权码 + 试用 |
-| Safari 复制修复 | 字体混淆还原 + 复制劫持拦截 |
+| 功能 | 说明 | macOS | Windows |
+| --- | --- | --- | --- |
+| 模拟点击 / 文本注入 | 回放录制文件时用(原生模块) | ✅ | ✅ |
+| 录制 | 全局鼠标钩子录下操作序列 | ✅ | ❌ 只有 macOS |
+| 输入源切换 | 读当前输入源 / 切换 / 设为当前 | ✅ | ❌ 只有 macOS(界面已去掉) |
+| 快捷输入 | 切到拼音后自动键入一段文字 | ✅ | ❌ 只有 macOS(界面已去掉) |
+| 激活授权 | 机器指纹 + 授权码 + 试用 | ✅ | ✅ |
+| Safari 复制修复 | 字体混淆还原 + 复制劫持拦截 | ✅ | ❌ 走 Apple Events,只有 macOS |
 
 ## 文档
 
@@ -98,6 +118,7 @@ src/features/<功能名>/index.js
 npm test                                   # 全部自测(必须串行,会真实操作 Safari 标签页)
 npm run test:core                          # 算法核心单元测试(浏览器无关)
 npm run test:e2e                           # Chromium 端到端(会开真实浏览器窗口)
+node tools/verify/verify-ui-platforms.cjs  # 界面裁剪:macOS 4 步 / Windows 2 步(真实浏览器跑)
 
 # 单跑某一条
 node src/features/safari-repair/test/generality.cjs     # 通用性:多作用域/同字跨作用域/双字体

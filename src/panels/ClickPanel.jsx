@@ -1,6 +1,11 @@
 /**
  * 第 3 步:模拟点击(录制 / 回放),以及「管理录制文件」视图。
+ *
+ * 注意:**这个面板只在 macOS 上出现**。Windows 版没有录制能力(录制依赖 macOS 的
+ * 事件监听),那一侧只保留「选择/管理录制文件 + 回放」,见 DefaultExecutePanel。
  */
+import ManageFilesPanel from './ManageFilesPanel'
+
 export default function ClickPanel({
   isManageMode,
   countdown,
@@ -83,28 +88,12 @@ export default function ClickPanel({
             </div>
           </div>
         ) : (
-          <div className="w-full max-w-md animate-fadeIn">
-            <h2 className="text-2xl font-bold mb-6 text-center">管理录制文件</h2>
-            <div className="bg-gray-200 rounded-lg p-6">
-              {jsonFiles.length > 0 ? (
-                <ul className="space-y-4">
-                  {jsonFiles.map((file) => (
-                    <li key={file.id} className="flex items-center justify-between">
-                      <span className="text-sm truncate flex-1 mr-2">{file.name}</span>
-                      <div className="flex space-x-2 whitespace-nowrap">
-                        <button onClick={() => onRename(file.name)}
-                          className="bg-blue-500 hover:bg-blue-600 text-white text-xs py-0.5 px-2 rounded">重命名</button>
-                        <button onClick={() => onDelete(file.name)}
-                          className="bg-gray-400 hover:bg-gray-500 text-white text-xs py-0.5 px-2 rounded">删除</button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (<p className="text-sm text-gray-500 text-center">暂无录制文件</p>)}
-              <button onClick={onManage}
-                className="mt-6 w-full bg-gray-500 hover:bg-gray-600 text-white font-medium py-1.5 px-4 rounded-lg transition duration-300 shadow-md active:scale-95 transform">返回</button>
-            </div>
-          </div>
+          <ManageFilesPanel
+            jsonFiles={jsonFiles}
+            onRename={onRename}
+            onDelete={onDelete}
+            onBack={onManage}
+          />
         )}
       </div>
   )

@@ -14,7 +14,6 @@
     "electron:build": "npm run build && npm run build:native && npm run build:vendor && env -u ELECTRON_RUN_AS_NODE electron .",
     "dist:mac:arm64": "npm run build && npm run build:native && npm run build:vendor && npx electron-builder --mac dir --arm64 --publish never",
     "dist:mac": "npm run build && npm run build:native && npm run build:vendor && npx electron-builder --mac dir --publish never",
-    "dist:win": "npm run build && npm run build:vendor && npx electron-builder --win --x64 --publish never",
     "test": "node --test --test-concurrency=1 src/features/safari-repair/test/*.cjs",
     "build:vendor": "node tools/build-vendor.mjs",
     "build:reference-db": "CR_INCLUDE_GBK=1 node tools/build-reference-db.mjs --size 48 --out tools/reference-fonts/glyph-db-48-gbk.crdb",
@@ -93,13 +92,6 @@
       ],
       "identity": null,
       "artifactName": "CampusNetworkConnector-mac-${version}.${ext}"
-    },
-    "win": {
-      "icon": "build/win-icon.png",
-      "target": [
-        "nsis"
-      ],
-      "artifactName": "CampusNetworkConnector-win-${version}.${ext}"
     },
     "asarUnpack": [
       "mac-coregraphics/**"
