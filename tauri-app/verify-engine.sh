@@ -9,11 +9,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIX="$ROOT/src/features/safari-repair/test/fixtures/live"
 DB="$ROOT/vendor/glyph-db-48.crdb.gz"
-BIN="$ROOT/tauri-app/src-tauri/target/release/glyph-check"
+BIN="$ROOT/tauri-app/src-tauri/target/check/release/examples/glyph_check"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 if [ ! -x "$BIN" ]; then
-  echo "先编译: cd tauri-app/src-tauri && cargo build --release --bin glyph-check"
+  echo "先编译: cd tauri-app/src-tauri && cargo build --release --example glyph_check --target-dir target/check"
   exit 1
 fi
 if [ ! -f "$DB" ]; then

@@ -6,33 +6,44 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const nacl = require('tweetnacl');
 
-// ── Native CoreGraphics addon ──
-// 原生模块（CoreGraphics）只在 macOS 上存在。必须**按平台加载**：
-// 在 Windows 上 require 会直接抛错，会让整个主进程起不来（App 白屏/闪退）。
-let mac = null;
+// ── Native addon（按平台加载）──
+// macOS   → mac-coregraphics（CoreGraphics：模拟点击 / 输入 / 输入源 / 录制）
+// Windows → win-input（Win32：SendInput / 低级鼠标钩子）
+//
+// 必须**按平台加载**：加载了别的平台的模块会直接抛错，把整个主进程带崩（白屏/闪退）。
+// 加载失败也必须**可见**（见 native:getStatus），不能静默 —— 见 ADR-0003。
+const NATIVE_MODULES = {
+  darwin: { name: 'mac-coregraphics', path: './mac-coregraphics' },
+  win32: { name: 'win-input', path: './win-input' },
+};
+const NATIVE = NATIVE_MODULES[process.platform] || null;
+
+let native = null;
 /** 原生模块加载失败的原因（界面要显示出来 —— 静默失效比崩溃更难查） */
 let nativeModuleError = '';
-if (process.platform === 'darwin') {
+if (NATIVE) {
   try {
-    mac = require('./mac-coregraphics');
-    if (!mac || typeof mac.mouseClick !== 'function') {
+    native = require(NATIVE.path);
+    if (!native || typeof native.mouseClick !== 'function') {
       throw new Error('原生模块没有导出预期的方法');
     }
   } catch (error) {
     nativeModuleError = String(error && error.message ? error.message : error);
-    console.error('[native] 加载 mac-coregraphics 失败:', nativeModuleError);
-    mac = null;
+    console.error(`[native] 加载 ${NATIVE.name} 失败:`, nativeModuleError);
+    native = null;
   }
+} else {
+  nativeModuleError = `当前平台(${process.platform})没有可用的原生模块`;
 }
 
 /** 调用原生能力：当前平台不支持时安静返回 null，不让整个 App 崩掉。 */
 function nativeCall(name, ...args) {
-  if (!mac || typeof mac[name] !== 'function') {
+  if (!native || typeof native[name] !== 'function') {
     console.warn(`[native] ${name} 在当前平台(${process.platform})不可用`);
     return null;
   }
   try {
-    return mac[name](...args);
+    return native[name](...args);
   } catch (error) {
     console.error(`[native] ${name} 调用失败:`, error && error.message);
     return null;
@@ -617,7 +628,7 @@ ipcMain.handle('activation:migrateLegacy', async (_e, legacy) => {
 // Mouse click
 /** 原生模块状态：界面据此提示"模拟输入不可用"，而不是让按钮静默失灵 */
 ipcMain.handle('native:getStatus', async () => ({
-  ok: !!mac,
+  ok: !!native,
   error: nativeModuleError,
   platform: process.platform,
 }));
@@ -874,9 +885,13 @@ function registerShortcuts() {
   const ok1 = globalShortcut.register('Ctrl+Shift+A', () => {
     triggerDefaultExecute().catch(e => console.error('[shortcut] default execute failed', e));
   });
-  const ok2 = globalShortcut.register('Ctrl+Shift+D', () => {
-    triggerPinyinFromClipboard().catch(e => console.error('[shortcut] pinyin failed', e));
-  });
+  // 剪贴板直输走的是「输入源切换 + 拼音键入」这套 macOS 打法，
+  // Windows 上没有等价物（那边靠 WM_CHAR 直接送字符），所以不注册这个快捷键。
+  const ok2 = process.platform === 'darwin'
+    ? globalShortcut.register('Ctrl+Shift+D', () => {
+      triggerPinyinFromClipboard().catch(e => console.error('[shortcut] pinyin failed', e));
+    })
+    : null;
   console.log(`[shortcut] Ctrl+Shift+A=${ok1} Ctrl+Shift+D=${ok2}`);
 }
 
