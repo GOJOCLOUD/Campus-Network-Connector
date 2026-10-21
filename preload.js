@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('cnc', {
   clipboardReadText() { try { return clipboard.readText() || ''; } catch (_) { return ''; } },
 
   // Window
+  platform: process.platform,
   quit() { ipcRenderer.invoke('window:quit').catch(() => {}); },
   minimize() { ipcRenderer.invoke('window:minimize').catch(() => {}); },
   maximize() { ipcRenderer.invoke('window:maximize').catch(() => {}); },

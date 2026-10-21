@@ -802,9 +802,13 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 520,
     height: 640,
-    // frame:false 去掉 macOS 自带的标题栏/窗口框 —— 用户看到的就是应用自己的白色面板。
-    // 代价:没有红黄绿按钮(自己加 ✕)、不能拖标题栏(面板顶部做拖拽区)。
-    frame: false,
+    // 去掉 macOS 自带的标题栏,但**保留原生红绿灯**,并把它挪到左上角那片透明区:
+    //   titleBarStyle:'hidden' —— 标题栏隐藏,红绿灯浮在内容上(原生按钮,行为完全正常)
+    //   trafficLightPosition  —— 红绿灯的位置
+    // Windows/Linux 没有原生红绿灯 → frame:false,改用页面上自绘的 ✕。
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 14, y: 12 } }
+      : { frame: false }),
     transparent: true,
     backgroundColor: '#00000000',
     hasShadow: true,

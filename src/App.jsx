@@ -10,6 +10,8 @@ import { USER_AGREEMENT_MD, TRIAL_SECONDS } from './lib/user-agreement'
 
 // cnc API helper — maps to window.cnc IPC calls
 const cnc = window.cnc || {};
+// macOS 用原生红绿灯,其它平台才需要自绘关闭按钮
+const isMac = cnc.platform === 'darwin';
 
 function App() {
   const [name, setName] = useState('')
@@ -219,14 +221,9 @@ function App() {
   const defaultExecuteRef = useRef(null)
 
   useEffect(() => {
-    const el = document.createElement('div')
-    el.id = 'cc-kbd-debug'
-    el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;font:11px monospace;color:#fff;background:rgba(0,0,0,0.8);padding:2px 8px;z-index:99999'
-    document.body.appendChild(el)
-
+    // 这里原本还会往屏幕最底下贴一条黑色调试条(显示按键信息)——
+    // 那条带子已经删掉了(挡住屏幕底下的内容),但快捷键保留。
     const onKeyDown = (e) => {
-      el.textContent = `key="${e.key}" code="${e.code}" ctrl=${e.ctrlKey} shift=${e.shiftKey} alt=${e.altKey} meta=${e.metaKey}`
-
       if (e.ctrlKey && e.shiftKey && e.code === 'KeyA') {
         e.preventDefault()
         defaultExecuteRef.current()
@@ -251,7 +248,7 @@ function App() {
       }
     }
     window.addEventListener('keydown', onKeyDown, true)
-    return () => { window.removeEventListener('keydown', onKeyDown, true); el.remove() }
+    return () => { window.removeEventListener('keydown', onKeyDown, true) }
   }, [])
 
   // 点击页面其他区域关闭下拉
@@ -574,7 +571,7 @@ function App() {
   }
 
   return (
-    <div className="app-drag relative h-screen bg-transparent flex flex-col overflow-hidden p-2">
+    <div className="app-drag relative h-screen bg-transparent flex flex-col overflow-hidden pt-10 px-2 pb-2">
       {nativeStatus && nativeStatus.ok === false && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white text-sm px-4 py-2 shadow">
           模拟输入相关功能不可用：原生模块加载失败（{nativeStatus.error || '未知原因'}）。
@@ -591,8 +588,9 @@ function App() {
         disableStepIndicators={!isActivated}
         nextDisabled={!isActivated}
         corner={
-          /* 无边框窗口没有系统标题栏 → 自带一个关闭入口(放在白色面板里面) */
-          <button
+          /* macOS 用原生红绿灯(见 main.js 的 titleBarStyle/trafficLightPosition),
+             这里只给没有原生按钮的平台兜底 */
+          !isMac && <button
             type="button"
             onClick={() => cnc.quit?.()}
             title="关闭（⌘Q）"
