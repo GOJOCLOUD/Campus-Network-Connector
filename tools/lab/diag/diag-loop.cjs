@@ -7,7 +7,7 @@
  *   node tools/lab/diag-loop.cjs [tabIndex] [次数]
  */
 const path = require('path');
-const { SafariBridge } = require(path.join(__dirname, '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
+const { SafariBridge } = require(path.join(__dirname, '..', '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
 
 const PROBE = `(function(){
   var N = __N__;

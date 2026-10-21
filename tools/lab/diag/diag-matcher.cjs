@@ -6,11 +6,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = path.resolve(__dirname, '..', '..', '..');
 const core = require(path.join(ROOT, 'vendor', 'copy-repair-core.cjs'));
 const opentype = require(path.join(ROOT, 'vendor', 'opentype.js'));
 const { FastGlyphMatcher } = require(path.join(ROOT, 'src', 'features', 'safari-repair', 'fast-matcher'));
-const { loadReferenceDb } = require('../../src/features/safari-repair/engine');
+const { loadReferenceDb } = require('../../../src/features/safari-repair/engine');
 
 function main() {
   const [fontFile, key, want] = process.argv.slice(2);

@@ -4,7 +4,7 @@
  *   node tools/lab/diag-pieces.cjs [tabIndex]
  */
 const path = require('path');
-const { SafariBridge } = require(path.join(__dirname, '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
+const { SafariBridge } = require(path.join(__dirname, '..', '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
 
 const PROBE = `(function(){
   var out = { pieces: [], base: '', align: [] };

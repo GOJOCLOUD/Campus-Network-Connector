@@ -9,9 +9,9 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { GlyphEngine } = require('../../src/features/safari-repair/engine');
+const { GlyphEngine } = require('../../../src/features/safari-repair/engine');
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = path.resolve(__dirname, '..', '..', '..');
 const FIX = path.join(ROOT, 'src/features/safari-repair/test/fixtures/fonts');
 
 // 默认只比**当前在用的**库（GBK 全集）。

@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = path.resolve(__dirname, '..', '..', '..');
 const opentype = require(path.join(ROOT, 'vendor', 'opentype.js'));
 const core = require(path.join(ROOT, 'vendor', 'copy-repair-core.cjs'));
 

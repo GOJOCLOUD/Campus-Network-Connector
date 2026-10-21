@@ -9,7 +9,7 @@
  */
 const { execFileSync } = require('child_process');
 const path = require('path');
-const { SafariBridge } = require(path.join(__dirname, '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
+const { SafariBridge } = require(path.join(__dirname, '..', '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
 
 function clipboard() {
   try {

@@ -6,15 +6,16 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = path.resolve(__dirname, '..', '..', '..');
 const core = require(path.join(ROOT, 'vendor', 'copy-repair-core.cjs'));
 const opentype = require(path.join(ROOT, 'vendor', 'opentype.js'));
-const { loadReferenceDb } = require('../../src/features/safari-repair/engine');
+const { loadReferenceDb } = require('../../../src/features/safari-repair/engine');
 
 function main() {
   const key = process.argv[2] || '格';
   // 默认读随包分发的那一份；传绝对路径可换别的库
-  const db = loadReferenceDb(process.argv[3] || 'glyph-db-48.crdb.gz');
+  const dbFile = process.argv[3] || 'glyph-db-48.crdb.gz';
+  const db = loadReferenceDb(dbFile);
   const size = db.header.gridSize;
   const ref = opentype.parse(fs.readFileSync(path.join(ROOT, 'tools/reference-fonts/NotoSansSC-Regular.otf')));
 

@@ -7,7 +7,7 @@
  * → 就不该再靠像素反推。
  */
 const path = require('path');
-const { SafariBridge } = require(path.join(__dirname, '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
+const { SafariBridge } = require(path.join(__dirname, '..', '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
 
 const PROBE = `(function(){
   function findSel(w, d) {

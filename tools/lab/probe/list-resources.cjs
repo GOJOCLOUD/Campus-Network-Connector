@@ -4,7 +4,7 @@
  *   node tools/lab/list-resources.cjs [tabIndex]
  */
 const path = require('path');
-const { SafariBridge } = require(path.join(__dirname, '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
+const { SafariBridge } = require(path.join(__dirname, '..', '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
 
 const PROBE = `(function(){
   var out = [];

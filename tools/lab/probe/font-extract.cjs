@@ -15,9 +15,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const opentype = require('/Users/wutiaoyun/Desktop/浏览器修复/node_modules/opentype.js');
-const { SafariBridge } = require('../../src/features/safari-repair/bridge');
+const { SafariBridge } = require('../../../src/features/safari-repair/bridge');
 
-const ROOT = path.join(__dirname, '..', '..');
+const ROOT = path.join(__dirname, '..', '..', '..');
 const tabIndex = Number(process.argv[2] || 19);
 
 const EXTRACT_JS = `(function(){

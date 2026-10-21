@@ -6,15 +6,16 @@
 const fs = require('fs');
 const path = require('path');
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = path.resolve(__dirname, '..', '..', '..');
 const core = require(path.join(ROOT, 'vendor', 'copy-repair-core.cjs'));
 const opentype = require(path.join(ROOT, 'vendor', 'opentype.js'));
-const { loadReferenceDb } = require('../../src/features/safari-repair/engine');
+const { loadReferenceDb } = require('../../../src/features/safari-repair/engine');
 
 function main() {
   const [fontFile, key, ...cands] = process.argv.slice(2);
-  if (!fontFile || !key) {
-    console.log('用法: node tools/lab/diag-binary-vs-db.cjs <字体> <字> [候选字...]');
+  if (!fontFile || !key || !cands.length) {
+    // 候选字是必需的：没有候选就没法比"谁更近"，以前会空数组越界崩掉
+    console.log('用法: node tools/lab/diag-binary-vs-db.cjs <字体> <字> <候选字...>');
     return;
   }
   const db = loadReferenceDb('glyph-db-48.crdb.gz');

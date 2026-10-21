@@ -10,7 +10,7 @@
  *   - 选区文本与按 run 分段的 scope
  */
 const path = require('path');
-const { SafariBridge } = require(path.join(__dirname, '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
+const { SafariBridge } = require(path.join(__dirname, '..', '..', '..', 'src', 'features', 'safari-repair', 'bridge'));
 
 const PROBE = `(function(){
   var out = { layers: [] };
@@ -79,7 +79,7 @@ async function main() {
   const tabIndex = process.argv[3] ? Number(process.argv[3]) : null;
   const bridge = new SafariBridge({});
   if (tabIndex === null) {
-    const { findTab } = require(path.join(__dirname, 'find-tab.cjs'));
+    const { findTab } = require(path.join(__dirname, '..', 'find-tab.cjs'));
     const tabs = findTab(keyword);
     if (!tabs.length) {
       console.log('找不到标签页：' + keyword);

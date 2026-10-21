@@ -10,11 +10,11 @@
  */
 const fs = require('fs');
 const path = require('path');
-const opentype = require(path.join(__dirname, '..', '..', 'vendor', 'opentype.js'));
-const core = require(path.join(__dirname, '..', '..', 'vendor', 'copy-repair-core.cjs'));
-const { loadReferenceDb } = require('../../src/features/safari-repair/engine');
+const opentype = require(path.join(__dirname, '..', '..', '..', 'vendor', 'opentype.js'));
+const core = require(path.join(__dirname, '..', '..', '..', 'vendor', 'copy-repair-core.cjs'));
+const { loadReferenceDb } = require('../../../src/features/safari-repair/engine');
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = path.resolve(__dirname, '..', '..', '..');
 const FONT = path.join(ROOT, 'tools/reference-fonts/NotoSansSC-Regular.otf');
 
 /** GB2312 之外、但字体里有的生僻字（挑几个常见的） */
@@ -32,7 +32,8 @@ function main() {
   const font = opentype.parse(fs.readFileSync(FONT));
   // 默认读随包分发的那一份（vendor/glyph-db-48.crdb.gz）；
   // 传绝对路径可换别的库来对比。
-  const db = loadReferenceDb(process.argv[2] || 'glyph-db-48.crdb.gz');
+  const dbFile = process.argv[2] || 'glyph-db-48.crdb.gz';
+  const db = loadReferenceDb(dbFile);
   console.log(`参考库 ${dbFile}：${db.header.count} 字，栅格 ${db.header.gridSize}\n`);
 
   const size = db.header.gridSize;
