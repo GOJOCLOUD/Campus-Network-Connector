@@ -28,6 +28,7 @@ fn nib(n: u8) -> f32 {
 }
 
 /// 参考字形库。
+#[derive(Clone)]
 pub struct GlyphDb {
     pub grid_size: usize,
     pub coarse_size: usize,

@@ -38,9 +38,6 @@ impl RasterWindow {
     };
 }
 
-/// 曲线细分段数：足够在 48px 栅格下复现字形轮廓。
-const CURVE_SEGMENTS: usize = 12;
-
 #[inline]
 pub fn quad_at(p0: f32, p1: f32, p2: f32, t: f32) -> f32 {
     let mt = 1.0 - t;

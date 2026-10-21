@@ -94,7 +94,7 @@ pub fn is_confident_substitution(c: &GlyphCandidate, t: &Thresholds) -> bool {
     let Some(best) = c.best_codepoint else {
         return false;
     };
-    if best == c.ch as u32 {
+    if best == (c.ch as u32) {
         return false; // 最近邻就是它自己 → 字体画的就是这个字
     }
     if c.self_distance < t.replace_self_distance {
